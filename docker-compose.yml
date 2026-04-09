@@ -35,3 +35,20 @@ services:
     command: 's3 -filer="filer:8888" -ip.bind=0.0.0.0 -config="/etc/seaweedfs/s3.json"'
     depends_on:
       - filer
+
+  postgres:
+    image: postgres:16
+    container_name: postgres
+    restart: always
+
+    environment:
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: mypassword
+      POSTGRES_DB: dms
+
+    ports:
+      - "5432:5432"
+
+volumes:
+ - postgres_data:/var/lib/postgresql/data
+ - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
