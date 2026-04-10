@@ -34,7 +34,7 @@ CREATE TABLE documents (
     name VARCHAR(255) NOT NULL,
     mime_type VARCHAR(100),
     size_bytes BIGINT NOT NULL,
-    folder_id UUID REFERENCES folders(id) ON DELETE SET NULL,
+    folder_id UUID REFERENCES folders(id) ON DELETE CASCADE,
     owner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
