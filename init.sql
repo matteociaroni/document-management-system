@@ -33,7 +33,7 @@ CREATE TABLE documents (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(255) NOT NULL,
     mime_type VARCHAR(100),
-    size_bytes BIGINT NOT NULL,
+    size_bytes BIGINT,
     folder_id UUID REFERENCES folders(id) ON DELETE CASCADE,
     owner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
@@ -55,19 +55,19 @@ CREATE TABLE permissions (
     access_level VARCHAR(20) NOT NULL,
     shared_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
 
-    -- almeno uno tra folder o document deve essere valorizzato
     CONSTRAINT chk_permission_target CHECK (
-        folder_id IS NOT NULL OR document_id IS NOT NULL
+        (folder_id IS NOT NULL AND document_id IS NULL)
+        OR
+        (folder_id IS NULL AND document_id IS NOT NULL)
     ),
 
-    -- livelli accesso ammessi
     CONSTRAINT chk_access_level CHECK (
         access_level IN ('VIEWER', 'EDITOR')
     )
 );
 
--- Indici per performance
 CREATE INDEX idx_permissions_user_id ON permissions(user_id);
+CREATE INDEX idx_permissions_user_document ON permissions(user_id, document_id);
+CREATE INDEX idx_permissions_user_folder ON permissions(user_id, folder_id);
 CREATE INDEX idx_permissions_document_id ON permissions(document_id);
 CREATE INDEX idx_permissions_folder_id ON permissions(folder_id);
-

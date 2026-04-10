@@ -31,7 +31,7 @@ services:
     ports:
       - "8333:8333"
     volumes:
-      - ./s3.json:/etc/seaweedfs/s3.json # Monta il file
+      - ./s3.json:/etc/seaweedfs/s3.json
     command: 's3 -filer="filer:8888" -ip.bind=0.0.0.0 -config="/etc/seaweedfs/s3.json"'
     depends_on:
       - filer
@@ -40,18 +40,39 @@ services:
     image: postgres:16
     container_name: postgres
     restart: always
-
     environment:
       POSTGRES_USER: myuser
       POSTGRES_PASSWORD: mypassword
       POSTGRES_DB: dms
-
     ports:
       - "5432:5432"
-
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U myuser"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: .
+    container_name: dms_backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://myuser:mypassword@postgres:5432/dms
+      S3_ENDPOINT: http://s3:8333
+      S3_ACCESS_KEY: ""
+      S3_SECRET_KEY: ""
+    depends_on:
+      postgres:
+        condition: service_healthy
+      s3:
+        condition: service_started
+    volumes:
+      - ./app:/app/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 volumes:
   postgres_data:

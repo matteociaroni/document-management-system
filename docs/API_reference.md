@@ -1,6 +1,8 @@
 
 # API Reference - Document Management System (MVP)
 
+> **Last Updated**: 2026-04-10
+
 ## Authentication
 
 ### POST /auth/register
@@ -30,27 +32,29 @@ Response:
 
 ### POST /auth/login
 
-User login.
+User login (credentials in request body).
 
-Request:
+**Request:**
 
 ```json
 {
   "email": "mario@azienda.com",
   "password": "password123"
 }
-
 ```
 
-Response:
+**Response (200 OK):**
 
 ```json
 {
-  "access_token": "jwt",
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
   "token_type": "bearer"
 }
-
 ```
+
+**Error Responses:**
+- `401 Unauthorized`: Invalid credentials
+- `400 Bad Request`: Missing required fields
 
 ### GET /auth/me
 
@@ -102,20 +106,63 @@ Request:
 
 ### GET /folders
 
-List folders.
+List folders owned by current user with optional pagination.
 
-Query parameters:
+**Query Parameters:**
+- `parent_id` (optional): UUID of parent folder to filter by
+- `limit` (optional, default: 20, max: 100): Number of results to return
+- `offset` (optional, default: 0): Number of results to skip
 
--   parent_id (optional)
+**Response (200 OK):**
+
+```json
+[
+  {
+    "id": "uuid",
+    "name": "Projects",
+    "parent_id": null,
+    "owner_id": "uuid",
+    "created_at": "2026-04-10T11:00:00Z"
+  }
+]
+```
+
+**Requires:** JWT token (Bearer header)
     
 
 ### GET /folders/{id}
 
-Get folder details.
+Get folder details (requires ownership or explicit permission).
+
+**Response (200 OK):**
+
+```json
+{
+  "id": "uuid",
+  "name": "Projects",
+  "parent_id": null,
+  "owner_id": "uuid",
+  "created_at": "2026-04-10T11:00:00Z"
+}
+```
+
+**Error Responses:**
+- `404 Not Found`: Folder doesn't exist
+- `403 Forbidden`: No access to folder
+
+**Requires:** JWT token
 
 ### DELETE /folders/{id}
 
-Delete a folder (cascade optional).
+Delete a folder (cascades to delete all contained documents and related permissions).
+
+**Response (204 No Content)**
+
+**Error Responses:**
+- `404 Not Found`: Folder doesn't exist
+- `403 Forbidden`: Only owner can delete
+
+**Requires:** JWT token
 
 ## Documents
 
@@ -157,22 +204,38 @@ Request:
 
 ### GET /documents
 
-List documents.
+List documents owned by current user with pagination.
 
-Query parameters:
+**Query Parameters:**
+- `folder_id` (optional): UUID of folder to filter by
+- `limit` (optional, default: 20, max: 100): Number of results to return
+- `offset` (optional, default: 0): Number of results to skip
 
--   folder_id
-    
--   limit
-    
--   offset
+**Response (200 OK):**
+
+```json
+[
+  {
+    "id": "uuid",
+    "name": "file.pdf",
+    "mime_type": "application/pdf",
+    "size_bytes": 12345,
+    "folder_id": "uuid",
+    "owner_id": "uuid",
+    "created_at": "2026-04-10T11:00:00Z",
+    "updated_at": "2026-04-10T11:00:00Z"
+  }
+]
+```
+
+**Requires:** JWT token
 
 
 ### GET /documents/{id}
 
-Get document details.
+Get document details (requires ownership or explicit permission).
 
-Response:
+**Response (200 OK):**
 
 ```json
 {
@@ -181,9 +244,17 @@ Response:
   "mime_type": "application/pdf",
   "size_bytes": 12345,
   "folder_id": "uuid",
-  "owner_id": "uuid"
+  "owner_id": "uuid",
+  "created_at": "2026-04-10T11:00:00Z",
+  "updated_at": "2026-04-10T11:00:00Z"
 }
 ```
+
+**Error Responses:**
+- `404 Not Found`: Document doesn't exist
+- `403 Forbidden`: No access to document
+
+**Requires:** JWT token
 
 ### GET /documents/{id}/download-url
 
@@ -199,33 +270,91 @@ Response:
 
 ### DELETE /documents/{id}
 
-Delete a document.
+Delete a document (cascades to delete related permissions).
+
+**Response (204 No Content)**
+
+**Error Responses:**
+- `404 Not Found`: Document doesn't exist
+- `403 Forbidden`: Only owner can delete
+
+**Requires:** JWT token
 
 ## Permissions
 
 ### POST /permissions
 
-Share a document or folder.
+Share a document or folder with another user.
 
-Request:
+**Request:**
 
 ```json
 {
   "user_id": "uuid",
-  "document_id": "uuid|null",
-  "folder_id": "uuid|null",
+  "document_id": "uuid or null",
+  "folder_id": "uuid or null",
   "access_level": "VIEWER"
 }
 ```
 
+**Response (200 OK):**
+
+```json
+{
+  "id": "uuid",
+  "user_id": "uuid",
+  "document_id": "uuid or null",
+  "folder_id": "uuid or null",
+  "access_level": "VIEWER",
+  "shared_at": "2026-04-10T11:00:00Z"
+}
+```
+
+**Validation Rules:**
+- Exactly one of `document_id` or `folder_id` must be provided
+- `access_level` must be "VIEWER" or "EDITOR"
+- Requester must own the shared resource
+
+**Error Responses:**
+- `400 Bad Request`: Invalid parameters or both/neither id provided
+- `403 Forbidden`: Cannot share resource you don't own
+- `404 Not Found`: Resource doesn't exist
+
+**Requires:** JWT token
+
 ### GET /permissions
 
-List permissions.
+List permissions granted TO current user (documents/folders shared with them).
+
+**Response (200 OK):**
+
+```json
+[
+  {
+    "id": "uuid",
+    "user_id": "uuid",
+    "document_id": "uuid or null",
+    "folder_id": "uuid or null",
+    "access_level": "VIEWER",
+    "shared_at": "2026-04-10T11:00:00Z"
+  }
+]
+```
+
+**Requires:** JWT token
 
 
 ### DELETE /permissions/{id}
 
-Remove a permission.
+Revoke a permission (only resource owner can revoke).
+
+**Response (204 No Content)**
+
+**Error Responses:**
+- `404 Not Found`: Permission doesn't exist
+- `403 Forbidden`: Only owner of the shared resource can revoke
+
+**Requires:** JWT token
 
 ----------
 
@@ -240,34 +369,6 @@ Standard error format:
   "details": {}
 }
 ```
-----------
-
-### Common status codes
-
-Code
-
-Description
-
-400
-
-Bad Request
-
-401
-
-Unauthorized
-
-403
-
-Forbidden
-
-404
-
-Not Found
-
-500
-
-Internal Server Error
-
 ----------
 
 ## Authentication Rules
@@ -344,3 +445,34 @@ Parameters:
 1.  GET /documents/{id}/download-url
     
 2.  Client downloads from SeaweedFS using signed URL
+
+----------
+
+## Important Implementation Notes
+
+### Permission Model
+- **Permission.user_id** = user TO WHOM access is granted (not who granted it)
+- Users can access resources if:
+  - They are the owner, OR
+  - They have an explicit permission record
+- Permission revocation: Only resource owner can revoke permissions
+
+### Document Lifecycle
+1. POST /documents/upload-url → Creates document with `size_bytes=NULL`
+2. Client uploads file directly to S3/SeaweedFS using presigned URL
+3. POST /documents/confirm → Sets `size_bytes` and finalizes record
+
+### Multi-Tenancy
+- Tenant derived from email domain (e.g., `mario@company.com` → bucket: `company-com`)
+- Each user's documents isolated by tenant
+- Sharing works across email domains within same deployment
+
+### Response Consistency
+- All date fields in ISO 8601 format: `YYYY-MM-DDTHH:MM:SSZ`
+- All UUIDs in standard format (36 chars with hyphens)
+- Cascading deletes: folders → documents → permissions; documents → permissions
+
+### Authentication
+- JWT tokens in `Authorization: Bearer <token>` header
+- Tokens expire after 24 hours
+- Endpoints requiring auth will return `401 Unauthorized` if token missing/invalid
