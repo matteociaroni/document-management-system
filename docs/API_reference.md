@@ -166,18 +166,15 @@ Delete a folder (cascades to delete all contained documents and related permissi
 
 ## Documents
 
-### POST /documents/upload-url
+### POST /documents/upload
 
-Generate a signed upload URL.
+Generate a signed upload URL and create document record.
 
-Request:
+Request (multipart/form-data):
 
-```json
-{
-  "filename": "file.pdf",
-  "mime_type": "application/pdf",
-  "folder_id": "uuid"
-}
+```
+file: <binary file>
+folder_id: "uuid" (optional)
 ```
 
 Response:
@@ -189,16 +186,22 @@ Response:
 }
 ```
 
-### POST /documents/confirm
+### POST /documents/{document_id}/confirm
 
-Confirm file upload to storage.
+Confirm file upload to storage and finalize document.
 
-Request:
+Response (200 OK):
 
 ```json
 {
-  "document_id": "uuid",
-  "size_bytes": 12345
+  "id": "uuid",
+  "name": "file.pdf",
+  "mime_type": "application/pdf",
+  "size_bytes": 12345,
+  "folder_id": "uuid",
+  "owner_id": "uuid",
+  "created_at": "2026-04-10T11:00:00Z",
+  "updated_at": "2026-04-10T11:00:00Z"
 }
 ```
 
@@ -256,17 +259,17 @@ Get document details (requires ownership or explicit permission).
 
 **Requires:** JWT token
 
-### GET /documents/{id}/download-url
+### GET /documents/{id}/download
 
-Generate a signed download URL.
+Download a document via streaming response.
 
-Response:
+**Response (200 OK):** Binary file stream with appropriate Content-Type header
 
-```json
-{
-  "download_url": "signed-url"
-}
-```
+**Error Responses:**
+- `404 Not Found`: Document doesn't exist
+- `403 Forbidden`: No access to document
+
+**Requires:** JWT token
 
 ### DELETE /documents/{id}
 
@@ -431,20 +434,20 @@ Parameters:
 
 ## Upload Flow
 
-1.  POST /documents/upload-url
+1.  POST /documents/upload (multipart form data with file)
     
-2.  Direct upload to SeaweedFS
+2.  Direct upload to SeaweedFS using presigned URL
     
-3.  POST /documents/confirm
+3.  POST /documents/{document_id}/confirm
     
 
 ----------
 
 ## Download Flow
 
-1.  GET /documents/{id}/download-url
+1.  GET /documents/{id}/download
     
-2.  Client downloads from SeaweedFS using signed URL
+2.  Client receives file stream directly from backend
 
 ----------
 
@@ -458,9 +461,9 @@ Parameters:
 - Permission revocation: Only resource owner can revoke permissions
 
 ### Document Lifecycle
-1. POST /documents/upload-url → Creates document with `size_bytes=NULL`
+1. POST /documents/upload → Creates document with `size_bytes=NULL`, returns presigned URL
 2. Client uploads file directly to S3/SeaweedFS using presigned URL
-3. POST /documents/confirm → Sets `size_bytes` and finalizes record
+3. POST /documents/{document_id}/confirm → Sets `size_bytes` and finalizes record
 
 ### Multi-Tenancy
 - Tenant derived from email domain (e.g., `mario@company.com` → bucket: `company-com`)
