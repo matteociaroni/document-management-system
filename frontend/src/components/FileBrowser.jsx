@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { api } from '../services/api';
 import { Folder, File as FileIcon, MoreVertical, Download, Trash, Share2, Move, FolderPlus, Upload } from 'lucide-react';
 import ShareModal from './ShareModal';
@@ -169,6 +169,7 @@ export default function FileBrowser({ view }) {
 
 function ItemCard({ item, type, isShared, onNavigate, onDownload, onDelete, onShare, onMove }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
   const isEditor = !isShared || item.permission === 'EDITOR';
 
   const handleAction = (e, action) => {
@@ -176,6 +177,19 @@ function ItemCard({ item, type, isShared, onNavigate, onDownload, onDelete, onSh
     setMenuOpen(false);
     action();
   };
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setMenuOpen(false);
+      }
+    };
+
+    if (menuOpen) {
+      document.addEventListener('click', handleClickOutside);
+      return () => document.removeEventListener('click', handleClickOutside);
+    }
+  }, [menuOpen]);
 
   return (
     <div className="item-card" onClick={type === 'folder' ? onNavigate : null}>
@@ -187,7 +201,7 @@ function ItemCard({ item, type, isShared, onNavigate, onDownload, onDelete, onSh
         {isShared && <span className="badge">{item.permission}</span>}
       </div>
 
-      <div className="item-actions">
+      <div className="item-actions" ref={menuRef}>
         <button className="btn-icon" onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}>
           <MoreVertical size={16} />
         </button>
