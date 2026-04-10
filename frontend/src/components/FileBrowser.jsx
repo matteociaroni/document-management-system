@@ -9,6 +9,7 @@ export default function FileBrowser({ view }) {
   const [items, setItems] = useState({ folders: [], documents: [] });
   const [loading, setLoading] = useState(true);
   const [currentFolderId, setCurrentFolderId] = useState(null);
+  const [currentFolderPermission, setCurrentFolderPermission] = useState(null);
   const [breadcrumb, setBreadcrumb] = useState([{ id: null, name: view === 'shared' ? 'Shared with me' : 'My Drive' }]);
   const [dragActive, setDragActive] = useState(false);
 
@@ -119,12 +120,14 @@ export default function FileBrowser({ view }) {
 
   const navigateToFolder = (folder) => {
     setCurrentFolderId(folder.id);
-    setBreadcrumb([...breadcrumb, { id: folder.id, name: folder.name }]);
+    setCurrentFolderPermission(folder.permission || null);
+    setBreadcrumb([...breadcrumb, { id: folder.id, name: folder.name, permission: folder.permission || null }]);
   };
 
   const navigateBreadcrumb = (index) => {
     const newCrumb = breadcrumb[index];
     setCurrentFolderId(newCrumb.id);
+    setCurrentFolderPermission(index === 0 ? null : newCrumb.permission || null);
     setBreadcrumb(breadcrumb.slice(0, index + 1));
   };
 
@@ -163,7 +166,7 @@ export default function FileBrowser({ view }) {
           ))}
         </div>
         <div className="browser-actions">
-          {view === 'my-drive' && (
+          {(view === 'my-drive' || currentFolderPermission === 'EDITOR') && (
             <>
               <button className="btn-secondary" onClick={handleCreateFolder}>
                 <FolderPlus size={16} /> New Folder
