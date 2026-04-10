@@ -214,6 +214,23 @@ export const api = {
     this.addHistory(`Shared ${type} with ${email} as ${accessLevel}`);
   },
 
+  async getItemPermissions(id, type) {
+    const query = `?${type === 'folder' ? 'folder_id' : 'document_id'}=${id}`;
+    const res = await fetch(`${API_URL}/permissions/resource/dummy${query}`, { 
+      headers: getHeaders() 
+    });
+    return await handleResponse(res);
+  },
+
+  async deletePermission(permissionId) {
+    const res = await fetch(`${API_URL}/permissions/${permissionId}`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    });
+    if (res.status !== 204) await handleResponse(res);
+    this.addHistory('Revoked sharing');
+  },
+
   // History
   addHistory(action) {
     fetch(`${API_URL}/history`, {

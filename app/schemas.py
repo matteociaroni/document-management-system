@@ -86,6 +86,15 @@ class PermissionResponse(BaseORMModel):
     shared_at: datetime
 
 
+class PermissionDetailResponse(BaseORMModel):
+    id: UUID
+    user: UserResponse
+    document_id: Optional[UUID]
+    folder_id: Optional[UUID]
+    access_level: str
+    shared_at: datetime
+
+
 class ErrorResponse(BaseModel):
     error: str
     code: str

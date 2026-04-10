@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from uuid import UUID
 from app.database import get_db
 from app.models import User, Permission, Folder, Document
-from app.schemas import PermissionCreate, PermissionResponse, ShareByEmailRequest
+from app.schemas import PermissionCreate, PermissionResponse, PermissionDetailResponse, ShareByEmailRequest
 from app.auth import get_current_user
 
 router = APIRouter(prefix="/permissions", tags=["permissions"])
@@ -102,6 +102,27 @@ def share_by_email(req: ShareByEmailRequest, user: User = Depends(get_current_us
 @router.get("", response_model=list[PermissionResponse])
 def list_permissions(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return db.query(Permission).filter(Permission.user_id == user.id).all()
+
+
+@router.get("/resource/{resource_id}", response_model=list[PermissionDetailResponse])
+def list_resource_permissions(
+    resource_id: str,
+    folder_id: UUID = None,
+    document_id: UUID = None,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get all permissions for a specific folder or document owned by user"""
+    _validate_target(folder_id=folder_id, document_id=document_id)
+    _verify_resource_ownership(db, user.id, folder_id=folder_id, document_id=document_id)
+    
+    query = db.query(Permission)
+    if folder_id:
+        query = query.filter(Permission.folder_id == folder_id)
+    else:
+        query = query.filter(Permission.document_id == document_id)
+    
+    return query.all()
 
 
 @router.delete("/{permission_id}", status_code=204)

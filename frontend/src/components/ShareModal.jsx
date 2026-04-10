@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { api } from '../services/api';
-import { X } from 'lucide-react';
+import { X, Trash2 } from 'lucide-react';
 import './Modal.css';
 
 export default function ShareModal({ itemId, type, onClose }) {
@@ -8,6 +8,23 @@ export default function ShareModal({ itemId, type, onClose }) {
   const [accessLevel, setAccessLevel] = useState('VIEWER');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [permissions, setPermissions] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchPermissions();
+  }, [itemId, type]);
+
+  const fetchPermissions = async () => {
+    try {
+      const perms = await api.getItemPermissions(itemId, type);
+      setPermissions(perms || []);
+    } catch (err) {
+      console.error('Failed to load permissions:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -16,7 +33,20 @@ export default function ShareModal({ itemId, type, onClose }) {
     try {
       await api.shareItem(itemId, type, email, accessLevel);
       setSuccess(`Successfully shared with ${email}`);
-      setTimeout(onClose, 1500);
+      setEmail('');
+      setAccessLevel('VIEWER');
+      await fetchPermissions();
+      setTimeout(() => setSuccess(''), 2000);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleRevoke = async (permissionId) => {
+    if (!window.confirm('Revoke this sharing?')) return;
+    try {
+      await api.deletePermission(permissionId);
+      await fetchPermissions();
     } catch (err) {
       setError(err.message);
     }
@@ -61,6 +91,30 @@ export default function ShareModal({ itemId, type, onClose }) {
             <button type="submit" className="btn-primary">Share</button>
           </div>
         </form>
+
+        {!loading && permissions.length > 0 && (
+          <div className="permissions-list">
+            <h3>Current Shares</h3>
+            <div className="permissions-items">
+              {permissions.map(perm => (
+                <div key={perm.id} className="permission-item">
+                  <div className="permission-info">
+                    <span className="permission-user">{perm.user?.email || 'Unknown'}</span>
+                    <span className="permission-level">{perm.access_level}</span>
+                  </div>
+                  <button 
+                    type="button"
+                    className="btn-icon btn-danger"
+                    onClick={() => handleRevoke(perm.id)}
+                    title="Revoke"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

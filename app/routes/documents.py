@@ -13,6 +13,34 @@ from fastapi.responses import StreamingResponse
 router = APIRouter(prefix="/documents", tags=["documents"])
 
 
+def _has_access_to_folder(db: Session, user_id: UUID, folder_id: UUID) -> bool:
+    """Check if user has access to a folder via ownership or explicit permission.
+    Also returns True if user owns any ancestor folder."""
+    folder = db.query(Folder).filter(Folder.id == folder_id).first()
+    if not folder:
+        return False
+    
+    # User owns this folder
+    if folder.owner_id == user_id:
+        return True
+    
+    # User has explicit permission
+    if has_permission(db, user_id, folder_id=folder_id):
+        return True
+    
+    # Check if user owns any ancestor folder
+    current = folder
+    while current.parent_id:
+        parent = db.query(Folder).filter(Folder.id == current.parent_id).first()
+        if not parent:
+            break
+        if parent.owner_id == user_id:
+            return True
+        current = parent
+    
+    return False
+
+
 def _get_document_or_404(db: Session, document_id: UUID, user: User, check_permission: bool = False) -> Document:
     """Fetch document by ID with optional permission check"""
     doc = db.query(Document).filter(Document.id == document_id).first()
@@ -122,11 +150,18 @@ def list_documents(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    query = db.query(Document).filter(Document.owner_id == user.id)
     if folder_id is not None:
-        query = query.filter(Document.folder_id == folder_id)
+        folder = db.query(Folder).filter(Folder.id == folder_id).first()
+        if not folder:
+            raise HTTPException(status_code=404, detail="Folder not found")
+        
+        if not _has_access_to_folder(db, user.id, folder_id):
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        query = db.query(Document).filter(Document.folder_id == folder_id)
     else:
-        query = query.filter(Document.folder_id == None)
+        query = db.query(Document).filter(Document.folder_id == None)
+        query = query.filter(Document.owner_id == user.id)
     
     return query.limit(limit).offset(offset).all()
 
@@ -144,7 +179,12 @@ def delete_document(document_id: UUID, user: User = Depends(get_current_user), d
     doc = _get_document_or_404(db, document_id, user, check_permission=False)
     
     if doc.owner_id != user.id:
-        raise HTTPException(status_code=403, detail="Only owner can delete")
+        if not doc.folder_id:
+            raise HTTPException(status_code=403, detail="Only owner can delete root documents")
+        
+        folder = db.query(Folder).filter(Folder.id == doc.folder_id).first()
+        if folder.owner_id != user.id and not has_write_permission(db, user.id, folder_id=doc.folder_id):
+            raise HTTPException(status_code=403, detail="No write access to folder")
     
     db.delete(doc)
     db.commit()

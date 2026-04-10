@@ -10,11 +10,16 @@ export default function FileBrowser({ view }) {
   const [loading, setLoading] = useState(true);
   const [currentFolderId, setCurrentFolderId] = useState(null);
   const [currentFolderPermission, setCurrentFolderPermission] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null);
   const [breadcrumb, setBreadcrumb] = useState([{ id: null, name: view === 'shared' ? 'Shared with me' : 'My Drive' }]);
   const [dragActive, setDragActive] = useState(false);
 
   const [shareModalData, setShareModalData] = useState(null);
   const [moveModalData, setMoveModalData] = useState(null);
+
+  useEffect(() => {
+    setCurrentUser(api.getCurrentUser());
+  }, []);
 
   const fetchItems = async () => {
     setLoading(true);
@@ -189,6 +194,8 @@ export default function FileBrowser({ view }) {
               item={f}
               type="folder"
               isShared={view === 'shared'}
+              currentFolderPermission={currentFolderPermission}
+              currentUser={currentUser}
               onNavigate={() => navigateToFolder(f)}
               onDelete={() => handleDelete(f.id, 'folder')}
               onShare={() => setShareModalData({ id: f.id, type: 'folder' })}
@@ -202,6 +209,8 @@ export default function FileBrowser({ view }) {
               item={d}
               type="document"
               isShared={view === 'shared'}
+              currentFolderPermission={currentFolderPermission}
+              currentUser={currentUser}
               onDownload={() => handleDownload(d)}
               onDelete={() => handleDelete(d.id, 'document')}
               onShare={() => setShareModalData({ id: d.id, type: 'document' })}
@@ -237,12 +246,14 @@ export default function FileBrowser({ view }) {
   );
 }
 
-function ItemCard({ item, type, isShared, onNavigate, onDownload, onDelete, onShare, onMove, onDragMove }) {
+function ItemCard({ item, type, isShared, currentFolderPermission, currentUser, onNavigate, onDownload, onDelete, onShare, onMove, onDragMove }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const menuRef = useRef(null);
   const cardRef = useRef(null);
+  const isOwner = currentUser && currentUser.id === item.owner_id;
   const isEditor = !isShared || item.permission === 'EDITOR';
+  const canDelete = isOwner || !isShared || item.permission === 'EDITOR' || currentFolderPermission === 'EDITOR';
 
   const handleAction = (e, action) => {
     e.stopPropagation();
@@ -333,7 +344,7 @@ function ItemCard({ item, type, isShared, onNavigate, onDownload, onDelete, onSh
             )}
             <button onClick={(e) => handleAction(e, onMove)}><Move size={14} /> {isShared ? "Copy to My Drive" : "Move"}</button>
 
-            {isEditor && (
+            {isOwner && (
               <>
                 <button onClick={(e) => handleAction(e, onShare)}><Share2 size={14} /> Share</button>
                 <div className="divider"></div>
