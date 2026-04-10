@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Form, File, UploadFile
 from sqlalchemy.orm import Session
 from uuid import UUID
 from typing import Optional
@@ -6,8 +6,9 @@ from app.database import get_db
 from app.models import User, Document, Folder
 from app.schemas import DocumentUploadRequest, DocumentUploadResponse, DocumentConfirmRequest, DocumentResponse, DownloadUrlResponse, MoveRequest
 from app.auth import get_current_user
-from app.storage import generate_upload_url, generate_download_url
+from app.storage import generate_upload_url, generate_download_url, get_s3_client, get_bucket_name
 from app.permissions_helper import has_permission
+from fastapi.responses import StreamingResponse
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -23,15 +24,10 @@ def _get_document_or_404(db: Session, document_id: UUID, user: User, check_permi
     
     return doc
 
-
-from fastapi import Form, File, UploadFile
-from fastapi.responses import StreamingResponse
-from app.storage import get_s3_client, get_bucket_name
-
-@router.post("/upload", response_model=DocumentResponse)
+@router.post("/upload", response_model=DocumentUploadResponse)
 async def upload_document(
-    file: UploadFile = File(...),
     folder_id: Optional[UUID] = Form(None),
+    file: UploadFile = File(...),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -52,21 +48,46 @@ async def upload_document(
         bucket = get_bucket_name(user.email)
         try:
             s3.head_bucket(Bucket=bucket)
-        except s3.exceptions.NoSuchBucket:
-            s3.create_bucket(Bucket=bucket)
+        except Exception as e:
+            # SeaweedFS returns 404 on head_bucket for non-existent buckets
+            if '404' in str(e):
+                s3.create_bucket(Bucket=bucket)
+            else:
+                raise
             
-        file_bytes = await file.read()
-        s3.put_object(Bucket=bucket, Key=str(doc.id), Body=file_bytes, ContentType=file.content_type or "application/octet-stream")
-        
-        doc.size_bytes = len(file_bytes)
-        db.commit()
-        db.refresh(doc)
+        upload_url = generate_upload_url(str(doc.id), user.email, file.content_type or "application/octet-stream")
     except Exception as e:
         db.delete(doc)
         db.commit()
         raise HTTPException(status_code=500, detail=str(e))
         
+    return DocumentUploadResponse(document_id=doc.id, upload_url=upload_url)
+
+
+@router.post("/{document_id}/confirm", response_model=DocumentResponse)
+def confirm_document_upload(
+    document_id: UUID,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Confirm document upload after file has been uploaded to S3"""
+    doc = _get_document_or_404(db, document_id, user, check_permission=False)
+    
+    if doc.owner_id != user.id:
+        raise HTTPException(status_code=403, detail="Only owner can confirm upload")
+    
+    try:
+        s3 = get_s3_client()
+        bucket = get_bucket_name(user.email)
+        obj = s3.head_object(Bucket=bucket, Key=str(doc.id))
+        doc.size_bytes = obj['ContentLength']
+        db.commit()
+        db.refresh(doc)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
     return doc
+
 
 
 @router.get("/{document_id}/download")

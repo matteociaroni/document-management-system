@@ -36,8 +36,6 @@ htmlcov/
 
 # OS
 Thumbs.db
-.DS_Store
-
 # Logs
 *.log
 logs/
@@ -45,3 +43,7 @@ logs/
 # Session/temp files
 *.tmp
 .copilot/
+
+# Node
+node_modules/
+package-lock.json

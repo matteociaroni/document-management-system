@@ -115,6 +115,7 @@ export const api = {
   },
 
   async uploadDocument(file, folderId = null) {
+    // Step 1: Request presigned URL from backend
     const formData = new FormData();
     formData.append('file', file);
     if (folderId) formData.append('folder_id', folderId);
@@ -122,15 +123,36 @@ export const api = {
     const headers = getHeaders();
     delete headers['Content-Type']; // Let browser set Content-Type for FormData
 
-    const res = await fetch(`${API_URL}/documents/upload`, {
+    const uploadRes = await fetch(`${API_URL}/documents/upload`, {
       method: 'POST',
       headers: headers,
       body: formData
     });
-    const docData = await handleResponse(res);
+    const uploadData = await handleResponse(uploadRes);
+    const documentId = uploadData.document_id;
+    const presignedUrl = uploadData.upload_url;
+
+    // Step 2: Upload file to S3 using presigned URL
+    const fileUploadRes = await fetch(presignedUrl, {
+      method: 'PUT',
+      body: file,
+      headers: {
+        'Content-Type': file.type || 'application/octet-stream'
+      }
+    });
+    if (!fileUploadRes.ok) {
+      throw new Error(`File upload to S3 failed: ${fileUploadRes.status}`);
+    }
+
+    // Step 3: Confirm upload with backend
+    const confirmRes = await fetch(`${API_URL}/documents/${documentId}/confirm`, {
+      method: 'POST',
+      headers: getHeaders()
+    });
+    await handleResponse(confirmRes);
     
     this.addHistory(`Uploaded document "${file.name}"`);
-    return docData.id;
+    return documentId;
   },
 
   async downloadDocument(documentId, filename) {

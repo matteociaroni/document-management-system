@@ -31,11 +31,14 @@ def _generate_presigned_url(document_id: str, email: str, operation: str, mime_t
         
         try:
             s3.head_bucket(Bucket=bucket)
-        except s3.exceptions.NoSuchBucket:
-            s3.create_bucket(Bucket=bucket)
         except Exception as e:
-            logger.error(f"S3 bucket head check failed: {e}")
-            raise
+            # SeaweedFS returns 404 on head_bucket for non-existent buckets
+            error_code = getattr(e.response['Error'], 'Code', None) if hasattr(e, 'response') else None
+            if '404' in str(e) or error_code == '404' or 'NoSuchBucket' in str(e):
+                s3.create_bucket(Bucket=bucket)
+            else:
+                logger.error(f"S3 bucket head check failed: {e}")
+                raise
             
         s3_ext = boto3.client(
             "s3",
