@@ -63,8 +63,8 @@ services:
     environment:
       DATABASE_URL: postgresql://myuser:mypassword@postgres:5432/dms
       S3_ENDPOINT: http://s3:8333
-      S3_ACCESS_KEY: ""
-      S3_SECRET_KEY: ""
+      S3_ACCESS_KEY: mykey
+      S3_SECRET_KEY: mysecret
     depends_on:
       postgres:
         condition: service_healthy
