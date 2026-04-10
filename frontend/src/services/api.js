@@ -155,6 +155,70 @@ export const api = {
     return documentId;
   },
 
+  async uploadFolder(files, rootFolderId = null) {
+    const folderMap = {}; // Maps folder paths to folder IDs
+    
+    for (const file of files) {
+      try {
+        // Get the folder path from the file
+        const webkitPath = file.webkitRelativePath;
+        if (!webkitPath) {
+          // If no webkitRelativePath, fall back to individual upload
+          await this.uploadDocument(file, rootFolderId);
+          continue;
+        }
+        
+        const pathParts = webkitPath.split('/');
+        const fileName = pathParts[pathParts.length - 1]; // Just the filename
+        
+        // Build folder structure
+        let currentFolderId = rootFolderId;
+        const folderPath = pathParts.slice(0, -1).join('/');
+        
+        if (folderPath && !folderMap[folderPath]) {
+          // Create folder structure if it doesn't exist
+          for (let i = 0; i < pathParts.length - 1; i++) {
+            const partialPath = pathParts.slice(0, i + 1).join('/');
+            
+            if (!folderMap[partialPath]) {
+              const folderName = pathParts[i];
+              try {
+                const createRes = await fetch(`${API_URL}/folders`, {
+                  method: 'POST',
+                  headers: getHeaders(),
+                  body: JSON.stringify({
+                    name: folderName,
+                    parent_id: currentFolderId
+                  })
+                });
+                const folderData = await handleResponse(createRes);
+                folderMap[partialPath] = folderData.id;
+                currentFolderId = folderData.id;
+              } catch (err) {
+                console.error(`Failed to create folder ${folderName}:`, err);
+                throw err;
+              }
+            } else {
+              currentFolderId = folderMap[partialPath];
+            }
+          }
+        } else if (folderPath) {
+          currentFolderId = folderMap[folderPath];
+        }
+        
+        // Upload file to the correct folder with correct name
+        if (file.size > 0) { // Skip empty files
+          await this.uploadDocument(file, currentFolderId);
+        }
+      } catch (err) {
+        console.error(`Failed to upload file ${file.name}:`, err);
+        throw new Error(`Failed to upload: ${err.message}`);
+      }
+    }
+    
+    this.addHistory(`Uploaded folder with ${files.length} files`);
+  },
+
   async downloadDocument(documentId, filename) {
     const res = await fetch(`${API_URL}/documents/${documentId}/download`, { headers: getHeaders() });
     if (!res.ok) {

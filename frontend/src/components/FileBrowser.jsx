@@ -65,6 +65,26 @@ export default function FileBrowser({ view }) {
     input.click();
   };
 
+  const handleUploadFolderClick = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.webkitdirectory = true;
+    input.directory = true;
+    input.onchange = async (e) => {
+      if (e.target.files && e.target.files.length > 0) {
+        try {
+          console.log(`Uploading ${e.target.files.length} files from folder...`);
+          await api.uploadFolder(Array.from(e.target.files), currentFolderId);
+          fetchItems();
+        } catch (err) {
+          console.error('Folder upload error:', err);
+          alert("Folder upload failed: " + err.message);
+        }
+      }
+    };
+    input.click();
+  };
+
   const handleDrop = async (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -83,14 +103,14 @@ export default function FileBrowser({ view }) {
     } else {
       const files = e.dataTransfer.files;
       if (files && files.length > 0) {
-        for (let i = 0; i < files.length; i++) {
-          try {
+        try {
+          for (let i = 0; i < files.length; i++) {
             await api.uploadDocument(files[i], currentFolderId);
-          } catch (err) {
-            alert(`Upload failed for ${files[i].name}: ${err.message}`);
           }
+          fetchItems();
+        } catch (err) {
+          alert(`Upload failed: ${err.message}`);
         }
-        fetchItems();
       }
     }
   };
@@ -177,7 +197,10 @@ export default function FileBrowser({ view }) {
                 <FolderPlus size={16} /> New Folder
               </button>
               <button className="btn-primary" onClick={handleUploadClick}>
-                <Upload size={16} /> Upload
+                <Upload size={16} /> Upload File
+              </button>
+              <button className="btn-primary" onClick={handleUploadFolderClick}>
+                <Upload size={16} /> Upload Folder
               </button>
             </>
           )}

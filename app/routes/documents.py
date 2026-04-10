@@ -65,8 +65,12 @@ async def upload_document(
             raise HTTPException(status_code=404, detail="Folder not found")
         if folder.owner_id != user.id and not has_write_permission(db, user.id, folder_id=folder_id):
             raise HTTPException(status_code=403, detail="No write access to folder")
-            
-    doc = Document(name=file.filename, mime_type=file.content_type, folder_id=folder_id, owner_id=user.id)
+    
+    # Use only basename for the filename (in case it has path components from webkitRelativePath)
+    import os
+    filename = os.path.basename(file.filename) if file.filename else "file"
+    
+    doc = Document(name=filename, mime_type=file.content_type, folder_id=folder_id, owner_id=user.id)
     db.add(doc)
     db.commit()
     db.refresh(doc)
