@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from app.routes import auth, folders, documents, permissions, health
+from app.routes import auth, folders, documents, permissions, health, history
 from app.schemas import ErrorResponse
 from app.database import engine, close_db
 
@@ -13,6 +13,7 @@ app.include_router(auth.router)
 app.include_router(folders.router)
 app.include_router(documents.router)
 app.include_router(permissions.router)
+app.include_router(history.router)
 
 
 @app.exception_handler(RequestValidationError)

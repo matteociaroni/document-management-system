@@ -71,3 +71,15 @@ CREATE INDEX idx_permissions_user_document ON permissions(user_id, document_id);
 CREATE INDEX idx_permissions_user_folder ON permissions(user_id, folder_id);
 CREATE INDEX idx_permissions_document_id ON permissions(document_id);
 CREATE INDEX idx_permissions_folder_id ON permissions(folder_id);
+
+-- -----------------------------
+-- HISTORY
+-- -----------------------------
+CREATE TABLE history (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    action VARCHAR(255) NOT NULL,
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+CREATE INDEX idx_history_user_id ON history(user_id);

@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from uuid import UUID
 from app.database import get_db
 from app.models import User, Permission, Folder, Document
-from app.schemas import PermissionCreate, PermissionResponse
+from app.schemas import PermissionCreate, PermissionResponse, ShareByEmailRequest
 from app.auth import get_current_user
 
 router = APIRouter(prefix="/permissions", tags=["permissions"])
@@ -47,6 +47,56 @@ def create_permission(req: PermissionCreate, user: User = Depends(get_current_us
         access_level=req.access_level
     )
     db.add(perm)
+    db.commit()
+    db.refresh(perm)
+    return perm
+
+
+@router.post("/share", response_model=PermissionResponse)
+def share_by_email(req: ShareByEmailRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not req.folder_id and not req.document_id:
+        raise HTTPException(status_code=400, detail="Either folder_id or document_id required")
+    if req.folder_id and req.document_id:
+        raise HTTPException(status_code=400, detail="Only one of folder_id or document_id allowed")
+        
+    _verify_resource_ownership(db, user.id, folder_id=req.folder_id, document_id=req.document_id)
+    
+    if req.access_level not in ["VIEWER", "EDITOR"]:
+        raise HTTPException(status_code=400, detail="Invalid access level")
+        
+    # Domain checking
+    target_user = db.query(User).filter(User.email == req.email).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Target user not found")
+        
+    user_domain = user.email.split("@")[1] if "@" in user.email else ""
+    target_domain = target_user.email.split("@")[1] if "@" in target_user.email else ""
+    
+    if user_domain != target_domain:
+        raise HTTPException(status_code=403, detail="Users must belong to the same domain")
+        
+    if target_user.id == user.id:
+        raise HTTPException(status_code=400, detail="Cannot share with yourself")
+        
+    # Create or update permission
+    existing = db.query(Permission).filter(
+        Permission.user_id == target_user.id,
+        Permission.folder_id == req.folder_id,
+        Permission.document_id == req.document_id
+    ).first()
+    
+    if existing:
+        existing.access_level = req.access_level
+        perm = existing
+    else:
+        perm = Permission(
+            user_id=target_user.id,
+            folder_id=req.folder_id,
+            document_id=req.document_id,
+            access_level=req.access_level
+        )
+        db.add(perm)
+        
     db.commit()
     db.refresh(perm)
     return perm

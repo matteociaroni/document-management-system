@@ -4,7 +4,7 @@ from uuid import UUID
 from typing import Optional
 from app.database import get_db
 from app.models import User, Folder
-from app.schemas import FolderCreate, FolderResponse
+from app.schemas import FolderCreate, FolderResponse, MoveRequest
 from app.auth import get_current_user
 from app.permissions_helper import has_permission
 
@@ -36,8 +36,10 @@ def list_folders(
     db: Session = Depends(get_db)
 ):
     query = db.query(Folder).filter(Folder.owner_id == user.id)
-    if parent_id:
+    if parent_id is not None:
         query = query.filter(Folder.parent_id == parent_id)
+    else:
+        query = query.filter(Folder.parent_id == None)
     return query.limit(limit).offset(offset).all()
 
 
@@ -64,3 +66,27 @@ def delete_folder(folder_id: UUID, user: User = Depends(get_current_user), db: S
     
     db.delete(folder)
     db.commit()
+
+
+@router.patch("/{folder_id}/move", response_model=FolderResponse)
+def move_folder(folder_id: UUID, req: MoveRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    folder = db.query(Folder).filter(Folder.id == folder_id).first()
+    if not folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+    
+    # Must own the folder to move it
+    if folder.owner_id != user.id:
+        raise HTTPException(status_code=403, detail="Only owner can move this folder")
+        
+    # Check permission for the destination folder if it exists
+    if req.new_folder_id:
+        dest_folder = db.query(Folder).filter(Folder.id == req.new_folder_id).first()
+        if not dest_folder:
+            raise HTTPException(status_code=404, detail="Destination folder not found")
+        if dest_folder.owner_id != user.id and not has_permission(db, user.id, folder_id=req.new_folder_id):
+            raise HTTPException(status_code=403, detail="No access to destination folder")
+            
+    folder.parent_id = req.new_folder_id
+    db.commit()
+    db.refresh(folder)
+    return folder

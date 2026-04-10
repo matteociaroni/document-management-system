@@ -90,3 +90,25 @@ class ErrorResponse(BaseModel):
     error: str
     code: str
     details: dict = {}
+
+
+class MoveRequest(BaseModel):
+    new_folder_id: Optional[UUID] = None
+
+
+class ShareByEmailRequest(BaseModel):
+    email: EmailStr
+    document_id: Optional[UUID] = None
+    folder_id: Optional[UUID] = None
+    access_level: str
+
+
+class HistoryCreate(BaseModel):
+    action: str
+
+
+class HistoryResponse(BaseORMModel):
+    id: UUID
+    user_id: UUID
+    action: str
+    timestamp: datetime
