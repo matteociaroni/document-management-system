@@ -1,11 +1,21 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from app.routes import auth, folders, documents, permissions, health
+from app.routes import auth, folders, documents, permissions, health, history
 from app.schemas import ErrorResponse
 from app.database import engine, close_db
 
 app = FastAPI(title="Document Management System")
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Include routers
 app.include_router(health.router)
@@ -13,6 +23,7 @@ app.include_router(auth.router)
 app.include_router(folders.router)
 app.include_router(documents.router)
 app.include_router(permissions.router)
+app.include_router(history.router)
 
 
 @app.exception_handler(RequestValidationError)

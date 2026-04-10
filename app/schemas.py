@@ -86,7 +86,38 @@ class PermissionResponse(BaseORMModel):
     shared_at: datetime
 
 
+class PermissionDetailResponse(BaseORMModel):
+    id: UUID
+    user: UserResponse
+    document_id: Optional[UUID]
+    folder_id: Optional[UUID]
+    access_level: str
+    shared_at: datetime
+
+
 class ErrorResponse(BaseModel):
     error: str
     code: str
     details: dict = {}
+
+
+class MoveRequest(BaseModel):
+    new_folder_id: Optional[UUID] = None
+
+
+class ShareByEmailRequest(BaseModel):
+    email: EmailStr
+    document_id: Optional[UUID] = None
+    folder_id: Optional[UUID] = None
+    access_level: str
+
+
+class HistoryCreate(BaseModel):
+    action: str
+
+
+class HistoryResponse(BaseORMModel):
+    id: UUID
+    user_id: UUID
+    action: str
+    timestamp: datetime

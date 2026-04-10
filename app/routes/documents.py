@@ -1,15 +1,44 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Form, File, UploadFile
 from sqlalchemy.orm import Session
 from uuid import UUID
 from typing import Optional
 from app.database import get_db
 from app.models import User, Document, Folder
-from app.schemas import DocumentUploadRequest, DocumentUploadResponse, DocumentConfirmRequest, DocumentResponse, DownloadUrlResponse
+from app.schemas import DocumentUploadRequest, DocumentUploadResponse, DocumentConfirmRequest, DocumentResponse, DownloadUrlResponse, MoveRequest
 from app.auth import get_current_user
-from app.storage import generate_upload_url, generate_download_url
-from app.permissions_helper import has_permission
+from app.storage import generate_upload_url, generate_download_url, get_s3_client, get_bucket_name
+from app.permissions_helper import has_permission, has_write_permission
+from fastapi.responses import StreamingResponse
 
 router = APIRouter(prefix="/documents", tags=["documents"])
+
+
+def _has_access_to_folder(db: Session, user_id: UUID, folder_id: UUID) -> bool:
+    """Check if user has access to a folder via ownership or explicit permission.
+    Also returns True if user owns any ancestor folder."""
+    folder = db.query(Folder).filter(Folder.id == folder_id).first()
+    if not folder:
+        return False
+    
+    # User owns this folder
+    if folder.owner_id == user_id:
+        return True
+    
+    # User has explicit permission
+    if has_permission(db, user_id, folder_id=folder_id):
+        return True
+    
+    # Check if user owns any ancestor folder
+    current = folder
+    while current.parent_id:
+        parent = db.query(Folder).filter(Folder.id == current.parent_id).first()
+        if not parent:
+            break
+        if parent.owner_id == user_id:
+            return True
+        current = parent
+    
+    return False
 
 
 def _get_document_or_404(db: Session, document_id: UUID, user: User, check_permission: bool = False) -> Document:
@@ -23,35 +52,98 @@ def _get_document_or_404(db: Session, document_id: UUID, user: User, check_permi
     
     return doc
 
-
-@router.post("/upload-url", response_model=DocumentUploadResponse)
-def get_upload_url(req: DocumentUploadRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if req.folder_id:
-        folder = db.query(Folder).filter(Folder.id == req.folder_id).first()
+@router.post("/upload", response_model=DocumentUploadResponse)
+async def upload_document(
+    folder_id: Optional[UUID] = Form(None),
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if folder_id:
+        folder = db.query(Folder).filter(Folder.id == folder_id).first()
         if not folder:
             raise HTTPException(status_code=404, detail="Folder not found")
-        if folder.owner_id != user.id and not has_permission(db, user.id, folder_id=req.folder_id):
-            raise HTTPException(status_code=403, detail="No access to folder")
+        if folder.owner_id != user.id and not has_write_permission(db, user.id, folder_id=folder_id):
+            raise HTTPException(status_code=403, detail="No write access to folder")
     
-    doc = Document(name=req.filename, mime_type=req.mime_type, folder_id=req.folder_id, owner_id=user.id)
+    # Use only basename for the filename (in case it has path components from webkitRelativePath)
+    import os
+    filename = os.path.basename(file.filename) if file.filename else "file"
+    
+    doc = Document(name=filename, mime_type=file.content_type, folder_id=folder_id, owner_id=user.id)
     db.add(doc)
     db.commit()
     db.refresh(doc)
     
-    upload_url = generate_upload_url(str(doc.id), user.email)
-    return {"document_id": doc.id, "upload_url": upload_url}
+    try:
+        s3 = get_s3_client()
+        bucket = get_bucket_name(user.email)
+        try:
+            s3.head_bucket(Bucket=bucket)
+        except Exception as e:
+            if '404' in str(e):
+                s3.create_bucket(Bucket=bucket)
+            else:
+                raise
+            
+        upload_url = generate_upload_url(str(doc.id), user.email, file.content_type or "application/octet-stream")
+    except Exception as e:
+        db.delete(doc)
+        db.commit()
+        raise HTTPException(status_code=500, detail=str(e))
+        
+    return DocumentUploadResponse(document_id=doc.id, upload_url=upload_url)
 
 
-@router.post("/confirm")
-def confirm_upload(req: DocumentConfirmRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    doc = db.query(Document).filter(Document.id == req.document_id, Document.owner_id == user.id).first()
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
+@router.post("/{document_id}/confirm", response_model=DocumentResponse)
+def confirm_document_upload(
+    document_id: UUID,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Confirm document upload after file has been uploaded to S3"""
+    doc = _get_document_or_404(db, document_id, user, check_permission=False)
     
-    doc.size_bytes = req.size_bytes
-    db.commit()
-    db.refresh(doc)
-    return {"message": "Upload confirmed"}
+    if doc.owner_id != user.id:
+        raise HTTPException(status_code=403, detail="Only owner can confirm upload")
+    
+    try:
+        s3 = get_s3_client()
+        bucket = get_bucket_name(user.email)
+        obj = s3.head_object(Bucket=bucket, Key=str(doc.id))
+        doc.size_bytes = obj['ContentLength']
+        db.commit()
+        db.refresh(doc)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+    return doc
+
+
+
+@router.get("/{document_id}/download")
+def download_document(document_id: UUID, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    doc = _get_document_or_404(db, document_id, user, check_permission=True)
+    try:
+        s3 = get_s3_client()
+        bucket = get_bucket_name(doc.owner.email)
+        obj = s3.get_object(Bucket=bucket, Key=str(doc.id))
+        
+        def iterfile():
+            for chunk in obj['Body'].iter_chunks():
+                if chunk:
+                    yield chunk
+                    
+        return StreamingResponse(
+            iterfile(),
+            media_type=doc.mime_type or "application/octet-stream",
+            headers={"Content-Disposition": f"attachment; filename=\"{doc.name}\""}
+        )
+    except Exception as e:
+        error_str = str(e)
+        if '404' in error_str or 'NoSuchKey' in error_str:
+            raise HTTPException(status_code=410, detail="File not found in storage")
+        raise HTTPException(status_code=500, detail="Failed to retrieve file")
 
 
 @router.get("", response_model=list[DocumentResponse])
@@ -62,9 +154,18 @@ def list_documents(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    query = db.query(Document).filter(Document.owner_id == user.id)
-    if folder_id:
-        query = query.filter(Document.folder_id == folder_id)
+    if folder_id is not None:
+        folder = db.query(Folder).filter(Folder.id == folder_id).first()
+        if not folder:
+            raise HTTPException(status_code=404, detail="Folder not found")
+        
+        if not _has_access_to_folder(db, user.id, folder_id):
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        query = db.query(Document).filter(Document.folder_id == folder_id)
+    else:
+        query = db.query(Document).filter(Document.folder_id == None)
+        query = query.filter(Document.owner_id == user.id)
     
     return query.limit(limit).offset(offset).all()
 
@@ -74,11 +175,7 @@ def get_document(document_id: UUID, user: User = Depends(get_current_user), db: 
     return _get_document_or_404(db, document_id, user, check_permission=True)
 
 
-@router.get("/{document_id}/download-url", response_model=DownloadUrlResponse)
-def get_download_url(document_id: UUID, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    doc = _get_document_or_404(db, document_id, user, check_permission=True)
-    download_url = generate_download_url(str(doc.id), doc.owner.email)
-    return {"download_url": download_url}
+
 
 
 @router.delete("/{document_id}", status_code=204)
@@ -86,7 +183,32 @@ def delete_document(document_id: UUID, user: User = Depends(get_current_user), d
     doc = _get_document_or_404(db, document_id, user, check_permission=False)
     
     if doc.owner_id != user.id:
-        raise HTTPException(status_code=403, detail="Only owner can delete")
+        if not doc.folder_id:
+            raise HTTPException(status_code=403, detail="Only owner can delete root documents")
+        
+        folder = db.query(Folder).filter(Folder.id == doc.folder_id).first()
+        if folder.owner_id != user.id and not has_write_permission(db, user.id, folder_id=doc.folder_id):
+            raise HTTPException(status_code=403, detail="No write access to folder")
     
     db.delete(doc)
     db.commit()
+
+
+@router.patch("/{document_id}/move", response_model=DocumentResponse)
+def move_document(document_id: UUID, req: MoveRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    doc = _get_document_or_404(db, document_id, user, check_permission=False)
+    
+    if doc.owner_id != user.id:
+        raise HTTPException(status_code=403, detail="Only owner can move this document")
+        
+    if req.new_folder_id:
+        dest_folder = db.query(Folder).filter(Folder.id == req.new_folder_id).first()
+        if not dest_folder:
+            raise HTTPException(status_code=404, detail="Destination folder not found")
+        if dest_folder.owner_id != user.id and not has_write_permission(db, user.id, folder_id=req.new_folder_id):
+            raise HTTPException(status_code=403, detail="No write access to destination folder")
+            
+    doc.folder_id = req.new_folder_id
+    db.commit()
+    db.refresh(doc)
+    return doc

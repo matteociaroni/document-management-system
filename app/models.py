@@ -90,3 +90,14 @@ class Permission(Base):
         Index("idx_permissions_document_id", document_id),
         Index("idx_permissions_folder_id", folder_id),
     )
+
+
+class History(Base):
+    __tablename__ = "history"
+    
+    id = Column(PG_UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    user_id = Column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    action = Column(String(255), nullable=False)
+    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+    
+    user = relationship("User", backref="history_entries")

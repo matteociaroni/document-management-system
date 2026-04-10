@@ -57,7 +57,7 @@ services:
 
   backend:
     build: .
-    container_name: dms_backend
+    container_name: backend
     ports:
       - "8000:8000"
     environment:
@@ -73,6 +73,17 @@ services:
     volumes:
       - ./app:/app/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: http://localhost:8000
+    container_name: frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
 
 volumes:
   postgres_data:
