@@ -10,6 +10,7 @@ export default function FileBrowser({ view }) {
   const [loading, setLoading] = useState(true);
   const [currentFolderId, setCurrentFolderId] = useState(null);
   const [breadcrumb, setBreadcrumb] = useState([{ id: null, name: view === 'shared' ? 'Shared with me' : 'My Drive' }]);
+  const [dragActive, setDragActive] = useState(false);
 
   const [shareModalData, setShareModalData] = useState(null);
   const [moveModalData, setMoveModalData] = useState(null);
@@ -58,10 +59,61 @@ export default function FileBrowser({ view }) {
     input.click();
   };
 
+  const handleDrop = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+
+    const draggedItem = e.dataTransfer.getData('application/x-dms-item');
+    
+    if (draggedItem) {
+      const { itemId, itemType } = JSON.parse(draggedItem);
+      try {
+        await api.moveItem(itemId, itemType, currentFolderId);
+        fetchItems();
+      } catch (err) {
+        alert(`Move failed: ${err.message}`);
+      }
+    } else {
+      const files = e.dataTransfer.files;
+      if (files && files.length > 0) {
+        for (let i = 0; i < files.length; i++) {
+          try {
+            await api.uploadDocument(files[i], currentFolderId);
+          } catch (err) {
+            alert(`Upload failed for ${files[i].name}: ${err.message}`);
+          }
+        }
+        fetchItems();
+      }
+    }
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+  };
+
   const handleDelete = async (id, type) => {
     if (window.confirm('Delete this item?')) {
       await api.deleteItem(id, type);
       fetchItems();
+    }
+  };
+
+  const handleDragMove = async (draggedId, draggedType, destinationFolderId) => {
+    try {
+      await api.moveItem(draggedId, draggedType, destinationFolderId);
+      fetchItems();
+    } catch (err) {
+      alert(`Move failed: ${err.message}`);
     }
   };
 
@@ -85,7 +137,20 @@ export default function FileBrowser({ view }) {
   };
 
   return (
-    <div className="file-browser">
+    <div 
+      className={`file-browser ${dragActive ? 'drag-active' : ''}`}
+      onDrop={handleDrop}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+    >
+      {dragActive && (
+        <div className="drag-overlay">
+          <div className="drag-content">
+            <Upload size={48} />
+            <p>Drop files here to upload</p>
+          </div>
+        </div>
+      )}
       <div className="browser-header">
         <div className="breadcrumbs">
           {breadcrumb.map((crumb, idx) => (
@@ -125,6 +190,7 @@ export default function FileBrowser({ view }) {
               onDelete={() => handleDelete(f.id, 'folder')}
               onShare={() => setShareModalData({ id: f.id, type: 'folder' })}
               onMove={() => setMoveModalData({ id: f.id, type: 'folder' })}
+              onDragMove={(draggedId, draggedType) => handleDragMove(draggedId, draggedType, f.id)}
             />
           ))}
           {items.documents.map(d => (
@@ -137,6 +203,7 @@ export default function FileBrowser({ view }) {
               onDelete={() => handleDelete(d.id, 'document')}
               onShare={() => setShareModalData({ id: d.id, type: 'document' })}
               onMove={() => setMoveModalData({ id: d.id, type: 'document' })}
+              onDragMove={(draggedId, draggedType) => draggedType === 'folder' && handleDragMove(draggedId, draggedType, d.id)}
             />
           ))}
           {items.folders.length === 0 && items.documents.length === 0 && (
@@ -167,15 +234,56 @@ export default function FileBrowser({ view }) {
   );
 }
 
-function ItemCard({ item, type, isShared, onNavigate, onDownload, onDelete, onShare, onMove }) {
+function ItemCard({ item, type, isShared, onNavigate, onDownload, onDelete, onShare, onMove, onDragMove }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
   const menuRef = useRef(null);
+  const cardRef = useRef(null);
   const isEditor = !isShared || item.permission === 'EDITOR';
 
   const handleAction = (e, action) => {
     e.stopPropagation();
     setMenuOpen(false);
     action();
+  };
+
+  const handleDragStart = (e) => {
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('application/x-dms-item', JSON.stringify({
+      itemId: item.id,
+      itemType: type
+    }));
+  };
+
+  const handleDragOver = (e) => {
+    if (type === 'folder') {
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = 'move';
+      setDragOver(true);
+    }
+  };
+
+  const handleDragLeave = (e) => {
+    if (e.target === cardRef.current) {
+      setDragOver(false);
+    }
+  };
+
+  const handleDrop = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+
+    if (type === 'folder') {
+      const draggedItem = e.dataTransfer.getData('application/x-dms-item');
+      if (draggedItem) {
+        const { itemId, itemType } = JSON.parse(draggedItem);
+        if (itemId !== item.id && onDragMove) {
+          onDragMove(itemId, itemType);
+        }
+      }
+    }
   };
 
   useEffect(() => {
@@ -192,7 +300,16 @@ function ItemCard({ item, type, isShared, onNavigate, onDownload, onDelete, onSh
   }, [menuOpen]);
 
   return (
-    <div className="item-card" onClick={type === 'folder' ? onNavigate : null}>
+    <div
+      ref={cardRef}
+      className={`item-card ${dragOver ? 'drag-over' : ''}`}
+      draggable={true}
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      onClick={type === 'folder' ? onNavigate : null}
+    >
       <div className="item-icon">
         {type === 'folder' ? <Folder size={32} color="var(--brand-primary)" fill="#dbeafe" /> : <FileIcon size={32} color="#64748b" />}
       </div>

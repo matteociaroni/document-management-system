@@ -6,7 +6,7 @@ from app.database import get_db
 from app.models import User, Folder
 from app.schemas import FolderCreate, FolderResponse, MoveRequest
 from app.auth import get_current_user
-from app.permissions_helper import has_permission
+from app.permissions_helper import has_permission, has_write_permission
 
 router = APIRouter(prefix="/folders", tags=["folders"])
 
@@ -80,8 +80,8 @@ def move_folder(folder_id: UUID, req: MoveRequest, user: User = Depends(get_curr
         
     if req.new_folder_id:
         dest_folder = _get_folder_or_404(db, req.new_folder_id, user, check_permission=False)
-        if dest_folder.owner_id != user.id and not has_permission(db, user.id, folder_id=req.new_folder_id):
-            raise HTTPException(status_code=403, detail="No access to destination folder")
+        if dest_folder.owner_id != user.id and not has_write_permission(db, user.id, folder_id=req.new_folder_id):
+            raise HTTPException(status_code=403, detail="No write access to destination folder")
             
     folder.parent_id = req.new_folder_id
     db.commit()
