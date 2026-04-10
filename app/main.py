@@ -3,6 +3,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from app.routes import auth, folders, documents, permissions, health
 from app.schemas import ErrorResponse
+from app.database import engine, close_db
 
 app = FastAPI(title="Document Management System")
 
@@ -20,6 +21,12 @@ async def validation_exception_handler(request, exc):
         status_code=400,
         content={"error": "Bad Request", "code": "VALIDATION_ERROR", "details": exc.errors()},
     )
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Graceful shutdown - close database connections"""
+    close_db()
 
 
 if __name__ == "__main__":
