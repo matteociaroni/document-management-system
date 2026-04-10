@@ -11,6 +11,18 @@ from app.permissions_helper import has_permission
 router = APIRouter(prefix="/folders", tags=["folders"])
 
 
+def _get_folder_or_404(db: Session, folder_id: UUID, user: User, check_permission: bool = False) -> Folder:
+    """Fetch folder by ID with optional permission check"""
+    folder = db.query(Folder).filter(Folder.id == folder_id).first()
+    if not folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+    
+    if check_permission and folder.owner_id != user.id and not has_permission(db, user.id, folder_id=folder_id):
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    return folder
+
+
 @router.post("", response_model=FolderResponse)
 def create_folder(req: FolderCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if req.parent_id:
@@ -45,21 +57,12 @@ def list_folders(
 
 @router.get("/{folder_id}", response_model=FolderResponse)
 def get_folder(folder_id: UUID, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    folder = db.query(Folder).filter(Folder.id == folder_id).first()
-    if not folder:
-        raise HTTPException(status_code=404, detail="Folder not found")
-    
-    if folder.owner_id != user.id and not has_permission(db, user.id, folder_id=folder_id):
-        raise HTTPException(status_code=403, detail="Access denied")
-    
-    return folder
+    return _get_folder_or_404(db, folder_id, user, check_permission=True)
 
 
 @router.delete("/{folder_id}", status_code=204)
 def delete_folder(folder_id: UUID, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    folder = db.query(Folder).filter(Folder.id == folder_id).first()
-    if not folder:
-        raise HTTPException(status_code=404, detail="Folder not found")
+    folder = _get_folder_or_404(db, folder_id, user, check_permission=False)
     
     if folder.owner_id != user.id:
         raise HTTPException(status_code=403, detail="Only owner can delete")
@@ -70,19 +73,13 @@ def delete_folder(folder_id: UUID, user: User = Depends(get_current_user), db: S
 
 @router.patch("/{folder_id}/move", response_model=FolderResponse)
 def move_folder(folder_id: UUID, req: MoveRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    folder = db.query(Folder).filter(Folder.id == folder_id).first()
-    if not folder:
-        raise HTTPException(status_code=404, detail="Folder not found")
+    folder = _get_folder_or_404(db, folder_id, user, check_permission=False)
     
-    # Must own the folder to move it
     if folder.owner_id != user.id:
         raise HTTPException(status_code=403, detail="Only owner can move this folder")
         
-    # Check permission for the destination folder if it exists
     if req.new_folder_id:
-        dest_folder = db.query(Folder).filter(Folder.id == req.new_folder_id).first()
-        if not dest_folder:
-            raise HTTPException(status_code=404, detail="Destination folder not found")
+        dest_folder = _get_folder_or_404(db, req.new_folder_id, user, check_permission=False)
         if dest_folder.owner_id != user.id and not has_permission(db, user.id, folder_id=req.new_folder_id):
             raise HTTPException(status_code=403, detail="No access to destination folder")
             

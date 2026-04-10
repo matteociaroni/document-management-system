@@ -7,7 +7,7 @@ from app.models import User, Document, Folder
 from app.schemas import DocumentUploadRequest, DocumentUploadResponse, DocumentConfirmRequest, DocumentResponse, DownloadUrlResponse, MoveRequest
 from app.auth import get_current_user
 from app.storage import generate_upload_url, generate_download_url, get_s3_client, get_bucket_name
-from app.permissions_helper import has_permission
+from app.permissions_helper import has_permission, has_write_permission
 from fastapi.responses import StreamingResponse
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -35,8 +35,8 @@ async def upload_document(
         folder = db.query(Folder).filter(Folder.id == folder_id).first()
         if not folder:
             raise HTTPException(status_code=404, detail="Folder not found")
-        if folder.owner_id != user.id and not has_permission(db, user.id, folder_id=folder_id):
-            raise HTTPException(status_code=403, detail="No access to folder")
+        if folder.owner_id != user.id and not has_write_permission(db, user.id, folder_id=folder_id):
+            raise HTTPException(status_code=403, detail="No write access to folder")
             
     doc = Document(name=file.filename, mime_type=file.content_type, folder_id=folder_id, owner_id=user.id)
     db.add(doc)
@@ -49,7 +49,6 @@ async def upload_document(
         try:
             s3.head_bucket(Bucket=bucket)
         except Exception as e:
-            # SeaweedFS returns 404 on head_bucket for non-existent buckets
             if '404' in str(e):
                 s3.create_bucket(Bucket=bucket)
             else:
@@ -109,7 +108,10 @@ def download_document(document_id: UUID, user: User = Depends(get_current_user),
             headers={"Content-Disposition": f"attachment; filename=\"{doc.name}\""}
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        error_str = str(e)
+        if '404' in error_str or 'NoSuchKey' in error_str:
+            raise HTTPException(status_code=410, detail="File not found in storage")
+        raise HTTPException(status_code=500, detail="Failed to retrieve file")
 
 
 @router.get("", response_model=list[DocumentResponse])
@@ -152,17 +154,15 @@ def delete_document(document_id: UUID, user: User = Depends(get_current_user), d
 def move_document(document_id: UUID, req: MoveRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     doc = _get_document_or_404(db, document_id, user, check_permission=False)
     
-    # Must own the document to move it (or have EDITOR permissions, but sticking to owner for simplicity unless specified)
     if doc.owner_id != user.id:
         raise HTTPException(status_code=403, detail="Only owner can move this document")
         
-    # Check permission for the destination folder if it exists
     if req.new_folder_id:
         dest_folder = db.query(Folder).filter(Folder.id == req.new_folder_id).first()
         if not dest_folder:
             raise HTTPException(status_code=404, detail="Destination folder not found")
-        if dest_folder.owner_id != user.id and not has_permission(db, user.id, folder_id=req.new_folder_id):
-            raise HTTPException(status_code=403, detail="No access to destination folder")
+        if dest_folder.owner_id != user.id and not has_write_permission(db, user.id, folder_id=req.new_folder_id):
+            raise HTTPException(status_code=403, detail="No write access to destination folder")
             
     doc.folder_id = req.new_folder_id
     db.commit()

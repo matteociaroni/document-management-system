@@ -9,6 +9,20 @@ from app.auth import get_current_user
 router = APIRouter(prefix="/permissions", tags=["permissions"])
 
 
+def _validate_target(folder_id: UUID = None, document_id: UUID = None) -> None:
+    """Validate that exactly one of folder_id or document_id is provided"""
+    if not folder_id and not document_id:
+        raise HTTPException(status_code=400, detail="Either folder_id or document_id required")
+    if folder_id and document_id:
+        raise HTTPException(status_code=400, detail="Only one of folder_id or document_id allowed")
+
+
+def _validate_access_level(access_level: str) -> None:
+    """Validate access level is VIEWER or EDITOR"""
+    if access_level not in ["VIEWER", "EDITOR"]:
+        raise HTTPException(status_code=400, detail="Invalid access level")
+
+
 def _verify_resource_ownership(db: Session, user_id: UUID, folder_id: UUID = None, document_id: UUID = None) -> None:
     """Verify user owns the folder or document. Raises 404 if not found, 403 if not owned"""
     if folder_id:
@@ -27,18 +41,9 @@ def _verify_resource_ownership(db: Session, user_id: UUID, folder_id: UUID = Non
 
 @router.post("", response_model=PermissionResponse)
 def create_permission(req: PermissionCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    # Validate target
-    if not req.folder_id and not req.document_id:
-        raise HTTPException(status_code=400, detail="Either folder_id or document_id required")
-    if req.folder_id and req.document_id:
-        raise HTTPException(status_code=400, detail="Only one of folder_id or document_id allowed")
-    
-    # Check ownership
+    _validate_target(folder_id=req.folder_id, document_id=req.document_id)
     _verify_resource_ownership(db, user.id, folder_id=req.folder_id, document_id=req.document_id)
-    
-    # Validate access level
-    if req.access_level not in ["VIEWER", "EDITOR"]:
-        raise HTTPException(status_code=400, detail="Invalid access level")
+    _validate_access_level(req.access_level)
     
     perm = Permission(
         user_id=req.user_id,
@@ -54,17 +59,10 @@ def create_permission(req: PermissionCreate, user: User = Depends(get_current_us
 
 @router.post("/share", response_model=PermissionResponse)
 def share_by_email(req: ShareByEmailRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if not req.folder_id and not req.document_id:
-        raise HTTPException(status_code=400, detail="Either folder_id or document_id required")
-    if req.folder_id and req.document_id:
-        raise HTTPException(status_code=400, detail="Only one of folder_id or document_id allowed")
-        
+    _validate_target(folder_id=req.folder_id, document_id=req.document_id)
     _verify_resource_ownership(db, user.id, folder_id=req.folder_id, document_id=req.document_id)
-    
-    if req.access_level not in ["VIEWER", "EDITOR"]:
-        raise HTTPException(status_code=400, detail="Invalid access level")
+    _validate_access_level(req.access_level)
         
-    # Domain checking
     target_user = db.query(User).filter(User.email == req.email).first()
     if not target_user:
         raise HTTPException(status_code=404, detail="Target user not found")
@@ -78,7 +76,6 @@ def share_by_email(req: ShareByEmailRequest, user: User = Depends(get_current_us
     if target_user.id == user.id:
         raise HTTPException(status_code=400, detail="Cannot share with yourself")
         
-    # Create or update permission
     existing = db.query(Permission).filter(
         Permission.user_id == target_user.id,
         Permission.folder_id == req.folder_id,
