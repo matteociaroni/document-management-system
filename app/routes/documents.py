@@ -47,8 +47,11 @@ def _get_document_or_404(db: Session, document_id: UUID, user: User, check_permi
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
     
-    if check_permission and doc.owner_id != user.id and not has_permission(db, user.id, document_id=document_id):
-        raise HTTPException(status_code=403, detail="Access denied")
+    if check_permission and doc.owner_id != user.id:
+        has_doc_perm = has_permission(db, user.id, document_id=document_id)
+        has_folder_perm = doc.folder_id and _has_access_to_folder(db, user.id, doc.folder_id)
+        if not has_doc_perm and not has_folder_perm:
+            raise HTTPException(status_code=403, detail="Access denied")
     
     return doc
 
@@ -192,6 +195,52 @@ def delete_document(document_id: UUID, user: User = Depends(get_current_user), d
     
     db.delete(doc)
     db.commit()
+
+
+@router.post("/{document_id}/copy", response_model=DocumentResponse)
+def copy_document(document_id: UUID, req: MoveRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    doc = _get_document_or_404(db, document_id, user, check_permission=True)
+    
+    if req.new_folder_id:
+        dest_folder = db.query(Folder).filter(Folder.id == req.new_folder_id).first()
+        if not dest_folder:
+            raise HTTPException(status_code=404, detail="Destination folder not found")
+        if dest_folder.owner_id != user.id and not has_write_permission(db, user.id, folder_id=req.new_folder_id):
+            raise HTTPException(status_code=403, detail="No write access to destination folder")
+            
+    new_doc = Document(
+        name=doc.name,
+        mime_type=doc.mime_type,
+        size_bytes=doc.size_bytes,
+        folder_id=req.new_folder_id,
+        owner_id=user.id
+    )
+    db.add(new_doc)
+    db.flush()
+    
+    try:
+        s3 = get_s3_client()
+        dest_bucket = get_bucket_name(user.email)
+        src_bucket = get_bucket_name(doc.owner.email)
+        
+        try:
+            s3.head_bucket(Bucket=dest_bucket)
+        except Exception as e:
+            if '404' in str(e) or 'Not Found' in str(e):
+                s3.create_bucket(Bucket=dest_bucket)
+            else:
+                raise
+                
+        copy_src = f"{src_bucket}/{doc.id}"
+        print(f"DEBUG documents.py CopySource: {copy_src!r}", flush=True)
+        s3.copy_object(CopySource=copy_src, Bucket=dest_bucket, Key=str(new_doc.id))
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to copy file in storage. It may not exist on S3. Error: " + str(e))
+        
+    db.commit()
+    db.refresh(new_doc)
+    return new_doc
 
 
 @router.patch("/{document_id}/move", response_model=DocumentResponse)

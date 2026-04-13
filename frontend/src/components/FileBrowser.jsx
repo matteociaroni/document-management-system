@@ -222,7 +222,7 @@ export default function FileBrowser({ view }) {
               onNavigate={() => navigateToFolder(f)}
               onDelete={() => handleDelete(f.id, 'folder')}
               onShare={() => setShareModalData({ id: f.id, type: 'folder' })}
-              onMove={() => setMoveModalData({ id: f.id, type: 'folder' })}
+              onMove={() => setMoveModalData({ id: f.id, type: 'folder', isShared: view === 'shared' })}
               onDragMove={(draggedId, draggedType) => handleDragMove(draggedId, draggedType, f.id)}
             />
           ))}
@@ -237,7 +237,7 @@ export default function FileBrowser({ view }) {
               onDownload={() => handleDownload(d)}
               onDelete={() => handleDelete(d.id, 'document')}
               onShare={() => setShareModalData({ id: d.id, type: 'document' })}
-              onMove={() => setMoveModalData({ id: d.id, type: 'document' })}
+              onMove={() => setMoveModalData({ id: d.id, type: 'document', isShared: view === 'shared' })}
               onDragMove={(draggedId, draggedType) => draggedType === 'folder' && handleDragMove(draggedId, draggedType, d.id)}
             />
           ))}
@@ -259,6 +259,7 @@ export default function FileBrowser({ view }) {
         <MoveModal
           itemId={moveModalData.id}
           type={moveModalData.type}
+          isShared={moveModalData.isShared}
           onClose={() => {
             setMoveModalData(null);
             fetchItems();

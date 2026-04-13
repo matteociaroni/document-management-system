@@ -3,10 +3,11 @@ from sqlalchemy.orm import Session
 from uuid import UUID
 from typing import Optional
 from app.database import get_db
-from app.models import User, Folder
+from app.models import User, Folder, Document
 from app.schemas import FolderCreate, FolderResponse, MoveRequest
 from app.auth import get_current_user
 from app.permissions_helper import has_permission, has_write_permission
+from app.storage import get_s3_client, get_bucket_name
 
 router = APIRouter(prefix="/folders", tags=["folders"])
 
@@ -110,6 +111,68 @@ def delete_folder(folder_id: UUID, user: User = Depends(get_current_user), db: S
     
     db.delete(folder)
     db.commit()
+
+
+def _copy_folder_recursive(db, s3, src_folder_id, dest_parent_id, user):
+    src_folder = db.query(Folder).filter(Folder.id == src_folder_id).first()
+    new_folder = Folder(name=src_folder.name, parent_id=dest_parent_id, owner_id=user.id)
+    db.add(new_folder)
+    db.flush()
+    
+    dest_bucket = get_bucket_name(user.email)
+    
+    try:
+        s3.head_bucket(Bucket=dest_bucket)
+    except Exception as e:
+        if '404' in str(e) or 'Not Found' in str(e):
+            s3.create_bucket(Bucket=dest_bucket)
+        else:
+            raise
+            
+    docs = db.query(Document).filter(Document.folder_id == src_folder_id).all()
+    for doc in docs:
+        src_bucket = get_bucket_name(doc.owner.email)
+        new_doc = Document(
+            name=doc.name,
+            mime_type=doc.mime_type,
+            size_bytes=doc.size_bytes,
+            folder_id=new_folder.id,
+            owner_id=user.id
+        )
+        db.add(new_doc)
+        db.flush()
+        copy_src = f"{src_bucket}/{doc.id}"
+        print(f"DEBUG folders.py CopySource: {copy_src!r}", flush=True)
+        try:
+            s3.copy_object(CopySource=copy_src, Bucket=dest_bucket, Key=str(new_doc.id))
+        except Exception as e:
+            print(f"WARNING: Skipping S3 copy for missing object {copy_src}. Error: {e}", flush=True)
+        
+    subfolders = db.query(Folder).filter(Folder.parent_id == src_folder_id).all()
+    for sub in subfolders:
+        _copy_folder_recursive(db, s3, sub.id, new_folder.id, user)
+        
+    return new_folder
+
+
+@router.post("/{folder_id}/copy", response_model=FolderResponse)
+def copy_folder(folder_id: UUID, req: MoveRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    folder = _get_folder_or_404(db, folder_id, user, check_permission=True)
+    
+    if req.new_folder_id:
+        dest_folder = _get_folder_or_404(db, req.new_folder_id, user, check_permission=False)
+        if dest_folder.owner_id != user.id and not has_write_permission(db, user.id, folder_id=req.new_folder_id):
+            raise HTTPException(status_code=403, detail="No write access to destination folder")
+            
+    try:
+        s3 = get_s3_client()
+        new_folder = _copy_folder_recursive(db, s3, folder.id, req.new_folder_id, user)
+        db.commit()
+        db.refresh(new_folder)
+        return new_folder
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to copy folder contents: " + str(e))
 
 
 @router.patch("/{folder_id}/move", response_model=FolderResponse)

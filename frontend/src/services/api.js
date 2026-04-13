@@ -261,6 +261,17 @@ export const api = {
     this.addHistory(`Moved ${type}`);
   },
 
+  async copyItem(id, type, newParentId) {
+    const route = type === 'folder' ? 'folders' : 'documents';
+    const res = await fetch(`${API_URL}/${route}/${id}/copy`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ new_folder_id: newParentId })
+    });
+    await handleResponse(res);
+    this.addHistory(`Copied ${type}`);
+  },
+
   async shareItem(id, type, email, accessLevel) {
     const body = {
       email,

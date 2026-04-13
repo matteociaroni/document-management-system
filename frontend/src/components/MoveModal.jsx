@@ -3,7 +3,7 @@ import { api } from '../services/api';
 import { X, Folder } from 'lucide-react';
 import './Modal.css';
 
-export default function MoveModal({ itemId, type, onClose }) {
+export default function MoveModal({ itemId, type, isShared, onClose }) {
   const [folders, setFolders] = useState([]);
   const [currentFolderId, setCurrentFolderId] = useState(null);
   const [breadcrumb, setBreadcrumb] = useState([{ id: null, name: 'My Drive' }]);
@@ -22,10 +22,14 @@ export default function MoveModal({ itemId, type, onClose }) {
 
   const handleMove = async () => {
     try {
-      await api.moveItem(itemId, type, currentFolderId);
+      if (isShared) {
+        await api.copyItem(itemId, type, currentFolderId);
+      } else {
+        await api.moveItem(itemId, type, currentFolderId);
+      }
       onClose();
     } catch (err) {
-      alert("Error moving item: " + err.message);
+      alert(`Error ${isShared ? 'copying' : 'moving'} item: ` + err.message);
     }
   };
 
@@ -33,7 +37,7 @@ export default function MoveModal({ itemId, type, onClose }) {
     <div className="modal-overlay">
       <div className="modal-content">
         <div className="modal-header">
-          <h2>Move {type}</h2>
+          <h2>{isShared ? `Copy ${type}` : `Move ${type}`}</h2>
           <button className="btn-icon" onClick={onClose}><X size={20}/></button>
         </div>
         
@@ -75,7 +79,7 @@ export default function MoveModal({ itemId, type, onClose }) {
 
         <div className="modal-footer">
           <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button type="button" className="btn-primary" onClick={handleMove}>Move Here</button>
+          <button type="button" className="btn-primary" onClick={handleMove}>{isShared ? 'Copy Here' : 'Move Here'}</button>
         </div>
       </div>
     </div>
