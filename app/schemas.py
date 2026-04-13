@@ -9,6 +9,12 @@ class BaseORMModel(BaseModel):
         from_attributes = True
 
 
+from enum import Enum
+
+class UserRole(str, Enum):
+    USER = "USER"
+    DOMAIN_ADMIN = "DOMAIN_ADMIN"
+
 class UserCreate(BaseModel):
     username: str
     email: EmailStr
@@ -19,6 +25,8 @@ class UserResponse(BaseORMModel):
     id: UUID
     username: str
     email: str
+    role: UserRole
+    is_active: bool
 
 
 class TokenResponse(BaseModel):
@@ -121,3 +129,18 @@ class HistoryResponse(BaseORMModel):
     user_id: UUID
     action: str
     timestamp: datetime
+
+
+class AdminUpdateStatusRequest(BaseModel):
+    is_active: bool
+
+
+class AdminUpdateRoleRequest(BaseModel):
+    role: UserRole
+
+
+class DomainMetricsResponse(BaseModel):
+    total_users: int
+    active_users: int
+    total_documents: int
+    total_storage_bytes: int

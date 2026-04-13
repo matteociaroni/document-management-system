@@ -318,5 +318,39 @@ export const api = {
   async getHistory() {
     const res = await fetch(`${API_URL}/history`, { headers: getHeaders() });
     return await handleResponse(res);
+  },
+
+  // Admin capabilities
+  async getDomainUsers() {
+    const res = await fetch(`${API_URL}/admin/users`, { headers: getHeaders() });
+    return await handleResponse(res);
+  },
+
+  async updateDomainUserStatus(userId, isActive) {
+    const res = await fetch(`${API_URL}/admin/users/${userId}/status`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify({ is_active: isActive })
+    });
+    return await handleResponse(res);
+  },
+
+  async updateDomainUserRole(userId, role) {
+    const res = await fetch(`${API_URL}/admin/users/${userId}/role`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify({ role })
+    });
+    return await handleResponse(res);
+  },
+
+  async getDomainMetrics() {
+    const res = await fetch(`${API_URL}/admin/metrics`, { headers: getHeaders() });
+    return await handleResponse(res);
+  },
+
+  async getDomainAudit() {
+    const res = await fetch(`${API_URL}/admin/audit`, { headers: getHeaders() });
+    return await handleResponse(res);
   }
 };
