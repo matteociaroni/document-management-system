@@ -65,6 +65,7 @@ services:
       S3_ENDPOINT: http://s3:8333
       S3_ACCESS_KEY: mykey
       S3_SECRET_KEY: mysecret
+      EMAIL_ENCRYPTION_KEY: L2II5RV2sn9EPmWoq1tdfHIN2wwntQfXeKLMG4lPbCc=
     depends_on:
       postgres:
         condition: service_healthy

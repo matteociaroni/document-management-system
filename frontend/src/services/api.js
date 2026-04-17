@@ -352,5 +352,36 @@ export const api = {
   async getDomainAudit() {
     const res = await fetch(`${API_URL}/admin/audit`, { headers: getHeaders() });
     return await handleResponse(res);
+  },
+
+  // Email Accounts
+  async listEmailAccounts() {
+    const res = await fetch(`${API_URL}/email-accounts`, { headers: getHeaders() });
+    return await handleResponse(res);
+  },
+
+  async createEmailAccount(data) {
+    const res = await fetch(`${API_URL}/email-accounts`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(data)
+    });
+    return await handleResponse(res);
+  },
+
+  async deleteEmailAccount(accountId) {
+    const res = await fetch(`${API_URL}/email-accounts/${accountId}`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    });
+    if (res.status !== 204) await handleResponse(res);
+  },
+
+  async testEmailAccount(accountId) {
+    const res = await fetch(`${API_URL}/email-accounts/${accountId}/test`, {
+      method: 'POST',
+      headers: getHeaders()
+    });
+    return await handleResponse(res);
   }
 };

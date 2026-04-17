@@ -3,6 +3,7 @@ import { useAuth } from './context/AuthContext';
 import AuthPage from './pages/AuthPage';
 import DrivePage from './pages/DrivePage';
 import AdminPage from './pages/AdminPage';
+import EmailAccountsPage from './pages/EmailAccountsPage';
 
 const ProtectedRoute = ({ children }) => {
   const { user } = useAuth();
@@ -25,6 +26,11 @@ function App() {
         <Route path="/admin" element={
           <ProtectedRoute>
             <AdminPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/email-accounts" element={
+          <ProtectedRoute>
+            <EmailAccountsPage />
           </ProtectedRoute>
         } />
         <Route path="/" element={<Navigate to={user ? "/drive" : "/login"} replace />} />

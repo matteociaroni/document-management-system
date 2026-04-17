@@ -1,14 +1,15 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { LogOut, HardDrive, Users, Clock, ShieldEllipsis } from 'lucide-react';
+import { LogOut, HardDrive, Users, Clock, ShieldEllipsis, Mail } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import FileBrowser from '../components/FileBrowser';
 import HistoryView from '../components/HistoryView';
+import EmailAccountsPage from './EmailAccountsPage';
 import './DrivePage.css';
 
 export default function DrivePage() {
   const { user, logout } = useAuth();
-  const [currentView, setCurrentView] = useState('my-drive'); // my-drive | shared | history
+  const [currentView, setCurrentView] = useState('my-drive'); // my-drive | shared | history | email-accounts
   const navigate = useNavigate();
 
   return (
@@ -43,6 +44,14 @@ export default function DrivePage() {
             <Clock size={20} />
             History
           </button>
+
+          <button
+            className={`nav-item ${currentView === 'email-accounts' ? 'active' : ''}`}
+            onClick={() => setCurrentView('email-accounts')}
+          >
+            <Mail size={20} />
+            Email Accounts
+          </button>
         </nav>
 
         <div className="sidebar-footer">
@@ -71,6 +80,7 @@ export default function DrivePage() {
         {currentView === 'my-drive' && <FileBrowser view="my-drive" />}
         {currentView === 'shared' && <FileBrowser view="shared" />}
         {currentView === 'history' && <HistoryView />}
+        {currentView === 'email-accounts' && <EmailAccountsPage />}
       </main>
     </div>
   );
