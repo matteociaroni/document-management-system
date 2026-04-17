@@ -6,7 +6,7 @@ retrieved later by the agent worker.
 """
 
 import logging
-from app.storage import get_s3_client
+from storage import get_s3_client
 
 logger = logging.getLogger(__name__)
 

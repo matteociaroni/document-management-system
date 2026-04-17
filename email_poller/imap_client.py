@@ -11,8 +11,8 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from app.crypto import decrypt_credentials
-from app.models import EmailAccount
+from crypto import decrypt_credentials
+from models import EmailAccount
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ def _refresh_oauth2_token(account: EmailAccount) -> str:
     import urllib.request
     import urllib.parse
     import json
-    from app.config import settings
+    from config import settings
 
     refresh_token = decrypt_credentials(account.encrypted_credentials)
 

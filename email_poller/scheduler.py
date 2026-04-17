@@ -10,11 +10,11 @@ Strategy:
 
 from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Session
-from app.models import EmailAccount, User
+from models import EmailAccount, User
 
-ACTIVE_INTERVAL = timedelta(hours=1)
+ACTIVE_INTERVAL = timedelta(seconds=1)
 INACTIVE_INTERVAL = timedelta(hours=24)
-ACTIVE_THRESHOLD = timedelta(hours=2)
+ACTIVE_THRESHOLD = timedelta(seconds=2)
 
 
 def get_accounts_to_poll(db: Session) -> list[EmailAccount]:
@@ -40,6 +40,7 @@ def get_accounts_to_poll(db: Session) -> list[EmailAccount]:
 
         is_active_user = last_active is not None and (now - last_active) < ACTIVE_THRESHOLD
         required_interval = ACTIVE_INTERVAL if is_active_user else INACTIVE_INTERVAL
+        due.append(account)
 
         # NULL last_synced_at means a forced sync was requested (or first ever sync)
         if account.last_synced_at is None:
