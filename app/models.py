@@ -1,5 +1,5 @@
 from uuid import UUID
-from sqlalchemy import Column, String, Text, BigInteger, ForeignKey, DateTime, CheckConstraint, Index
+from sqlalchemy import Column, String, Text, BigInteger, ForeignKey, DateTime, CheckConstraint, Index, Boolean
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.sql import func
@@ -14,6 +14,8 @@ class User(Base):
     username = Column(String(100), nullable=False)
     email = Column(String(100), unique=True, nullable=False)
     password_hash = Column(Text, nullable=False)
+    role = Column(String(20), default="USER")
+    is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     folders = relationship("Folder", back_populates="owner")

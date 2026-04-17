@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
 import AuthPage from './pages/AuthPage';
 import DrivePage from './pages/DrivePage';
+import AdminPage from './pages/AdminPage';
 
 const ProtectedRoute = ({ children }) => {
   const { user } = useAuth();
@@ -19,6 +20,11 @@ function App() {
         <Route path="/drive" element={
           <ProtectedRoute>
             <DrivePage />
+          </ProtectedRoute>
+        } />
+        <Route path="/admin" element={
+          <ProtectedRoute>
+            <AdminPage />
           </ProtectedRoute>
         } />
         <Route path="/" element={<Navigate to={user ? "/drive" : "/login"} replace />} />
