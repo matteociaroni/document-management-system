@@ -11,7 +11,8 @@ CREATE TABLE users (
     password_hash TEXT NOT NULL,
     role VARCHAR(20) DEFAULT 'USER',
     is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    last_active_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
 -- -----------------------------
@@ -85,3 +86,101 @@ CREATE TABLE history (
 );
 
 CREATE INDEX idx_history_user_id ON history(user_id);
+
+-- -----------------------------
+-- EMAIL ACCOUNTS
+-- -----------------------------
+CREATE TABLE email_accounts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    email_address VARCHAR(255) NOT NULL,
+    imap_host VARCHAR(255) NOT NULL,
+    imap_port INTEGER DEFAULT 993,
+    use_ssl BOOLEAN DEFAULT TRUE,
+    auth_type VARCHAR(20) DEFAULT 'app_password',
+    encrypted_credentials TEXT NOT NULL,
+    oauth_provider VARCHAR(20),
+    is_active BOOLEAN DEFAULT TRUE,
+    last_synced_at TIMESTAMP WITH TIME ZONE,
+    last_uid BIGINT DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+
+    CONSTRAINT chk_auth_type CHECK (
+        auth_type IN ('app_password', 'oauth2')
+    )
+);
+
+CREATE INDEX idx_email_accounts_user_id ON email_accounts(user_id);
+
+-- -----------------------------
+-- EMAIL JOBS
+-- -----------------------------
+CREATE TABLE email_jobs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email_account_id UUID NOT NULL REFERENCES email_accounts(id) ON DELETE CASCADE,
+    message_uid BIGINT NOT NULL,
+    subject TEXT,
+    sender VARCHAR(255),
+    received_at TIMESTAMP WITH TIME ZONE,
+    eml_storage_key TEXT,
+    status VARCHAR(20) DEFAULT 'pending',
+    error_message TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    processed_at TIMESTAMP WITH TIME ZONE,
+
+    CONSTRAINT chk_job_status CHECK (
+        status IN ('pending', 'processing', 'done', 'failed')
+    ),
+    UNIQUE(email_account_id, message_uid)
+);
+
+CREATE INDEX idx_email_jobs_status ON email_jobs(status);
+CREATE INDEX idx_email_jobs_account_id ON email_jobs(email_account_id);
+
+-- -----------------------------
+-- EMAIL ATTACHMENTS
+-- -----------------------------
+CREATE TABLE email_attachments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    job_id UUID NOT NULL REFERENCES email_jobs(id) ON DELETE CASCADE,
+    filename VARCHAR(255) NOT NULL,
+    mime_type VARCHAR(100),
+    size_bytes BIGINT,
+    content_hash VARCHAR(64),
+    suggested_folder_id UUID REFERENCES folders(id),
+    confidence FLOAT,
+    agent_reasoning TEXT,
+    document_id UUID REFERENCES documents(id),
+    status VARCHAR(20) DEFAULT 'pending',
+    auto_filed BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+
+    CONSTRAINT chk_attachment_status CHECK (
+        status IN ('pending', 'auto_filed', 'in_inbox', 'confirmed', 'rejected')
+    )
+);
+
+CREATE INDEX idx_email_attachments_job_id ON email_attachments(job_id);
+CREATE INDEX idx_email_attachments_status ON email_attachments(status);
+CREATE INDEX idx_email_attachments_content_hash ON email_attachments(content_hash);
+
+-- -----------------------------
+-- AGENT OPERATIONS
+-- -----------------------------
+CREATE TABLE agent_operations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    job_id UUID REFERENCES email_jobs(id),
+    attachment_id UUID REFERENCES email_attachments(id),
+    operation_type VARCHAR(50) NOT NULL,
+    description TEXT NOT NULL,
+    details JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+
+    CONSTRAINT chk_operation_type CHECK (
+        operation_type IN ('email_received', 'attachment_extracted', 'auto_filed', 'sent_to_inbox', 'duplicate_skipped', 'error')
+    )
+);
+
+CREATE INDEX idx_agent_operations_user_id ON agent_operations(user_id);
+CREATE INDEX idx_agent_operations_created_at ON agent_operations(created_at);

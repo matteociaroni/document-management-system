@@ -144,3 +144,77 @@ class DomainMetricsResponse(BaseModel):
     active_users: int
     total_documents: int
     total_storage_bytes: int
+
+
+# --- Email Accounts ---
+
+class EmailAccountCreate(BaseModel):
+    email_address: EmailStr
+    imap_host: str
+    imap_port: int = 993
+    use_ssl: bool = True
+    auth_type: str = "app_password"  # 'app_password' | 'oauth2'
+    credentials: str  # plaintext password or OAuth token — encrypted by backend before saving
+    oauth_provider: Optional[str] = None  # 'gmail' | 'outlook'
+
+
+class EmailAccountUpdate(BaseModel):
+    imap_host: Optional[str] = None
+    imap_port: Optional[int] = None
+    use_ssl: Optional[bool] = None
+    is_active: Optional[bool] = None
+    credentials: Optional[str] = None  # if provided, re-encrypted by backend
+
+
+class EmailAccountResponse(BaseORMModel):
+    id: UUID
+    email_address: str
+    imap_host: str
+    imap_port: int
+    use_ssl: bool
+    auth_type: str
+    oauth_provider: Optional[str]
+    is_active: bool
+    last_synced_at: Optional[datetime]
+    created_at: datetime
+
+
+class EmailAccountTestResponse(BaseModel):
+    success: bool
+    message: str
+
+
+# --- Agent Operations ---
+
+class AgentOperationResponse(BaseORMModel):
+    id: UUID
+    user_id: UUID
+    job_id: Optional[UUID]
+    attachment_id: Optional[UUID]
+    operation_type: str
+    description: str
+    details: Optional[dict]
+    created_at: datetime
+
+
+# --- Agent Proposals ---
+
+class ProposalResponse(BaseORMModel):
+    id: UUID
+    filename: str
+    mime_type: Optional[str]
+    size_bytes: Optional[int]
+    suggested_folder_id: Optional[UUID]
+    confidence: Optional[float]
+    agent_reasoning: Optional[str]
+    document_id: Optional[UUID]
+    status: str
+    created_at: datetime
+    # Populated via join
+    suggested_folder_name: Optional[str] = None
+    sender: Optional[str] = None
+    subject: Optional[str] = None
+
+
+class ProposalMoveRequest(BaseModel):
+    folder_id: UUID

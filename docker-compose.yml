@@ -74,6 +74,32 @@ services:
       - ./app:/app/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
+  email-poller:
+    build: .
+    container_name: email_poller
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://myuser:mypassword@postgres:5432/dms
+      S3_ENDPOINT: http://s3:8333
+      S3_ACCESS_KEY: mykey
+      S3_SECRET_KEY: mysecret
+      EMAIL_ENCRYPTION_KEY: ${EMAIL_ENCRYPTION_KEY:-change-me-generate-a-real-fernet-key}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      AGENT_CONFIDENCE_THRESHOLD: ${AGENT_CONFIDENCE_THRESHOLD:-0.75}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
+      MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      s3:
+        condition: service_started
+    volumes:
+      - ./app:/app/app
+    command: python -m app.email_poller.poller
+
   frontend:
     build:
       context: ./frontend
