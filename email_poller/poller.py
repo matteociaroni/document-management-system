@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.models import EmailAccount, EmailJob, AgentOperation
-from app.email_poller import scheduler, imap_client, eml_storage
+from email_poller import imap_client, scheduler, eml_storage
 
 logging.basicConfig(
     level=logging.INFO,
