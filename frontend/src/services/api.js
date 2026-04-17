@@ -369,6 +369,15 @@ export const api = {
     return await handleResponse(res);
   },
 
+  async updateEmailAccount(accountId, data) {
+    const res = await fetch(`${API_URL}/email-accounts/${accountId}`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify(data)
+    });
+    return await handleResponse(res);
+  },
+
   async deleteEmailAccount(accountId) {
     const res = await fetch(`${API_URL}/email-accounts/${accountId}`, {
       method: 'DELETE',

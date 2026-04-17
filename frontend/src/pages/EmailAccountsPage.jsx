@@ -138,6 +138,7 @@ export default function EmailAccountsPage() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [testing, setTesting] = useState(null);
+  const [updatingSync, setUpdatingSync] = useState(null);
   const [testResults, setTestResults] = useState({});
 
   useEffect(() => {
@@ -181,6 +182,18 @@ export default function EmailAccountsPage() {
       }));
     } finally {
       setTesting(null);
+    }
+  };
+
+  const handleToggleSync = async (account) => {
+    setUpdatingSync(account.id);
+    try {
+      const updated = await api.updateEmailAccount(account.id, { is_active: !account.is_active });
+      setAccounts(prev => prev.map(a => (a.id === account.id ? updated : a)));
+    } catch (err) {
+      alert('Error updating sync status: ' + err.message);
+    } finally {
+      setUpdatingSync(null);
     }
   };
 
@@ -228,13 +241,24 @@ export default function EmailAccountsPage() {
             <div key={account.id} className="account-card">
               <div className="account-header">
                 <h3>{account.email_address}</h3>
-                <button
-                  onClick={() => handleDelete(account.id)}
-                  className="btn-icon-danger"
-                  title="Delete"
-                >
-                  <Trash2 size={18} />
-                </button>
+                <div className="account-header-actions">
+                  <label className="sync-switch" title={account.is_active ? 'Disable sync' : 'Enable sync'}>
+                    <input
+                      type="checkbox"
+                      checked={account.is_active}
+                      disabled={updatingSync === account.id}
+                      onChange={() => handleToggleSync(account)}
+                    />
+                    <span className="sync-switch-slider" />
+                  </label>
+                  <button
+                    onClick={() => handleDelete(account.id)}
+                    className="btn-icon-danger"
+                    title="Delete"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                </div>
               </div>
 
               <div className="account-details">
@@ -258,12 +282,12 @@ export default function EmailAccountsPage() {
                   <span className="label">Created:</span>
                   <span className="value">{new Date(account.created_at).toLocaleDateString()}</span>
                 </div>
-                {account.last_synced_at && (
-                  <div className="detail-row">
-                    <span className="label">Last Synced:</span>
-                    <span className="value">{new Date(account.last_synced_at).toLocaleString()}</span>
-                  </div>
-                )}
+                <div className="detail-row">
+                  <span className="label">Last Synced:</span>
+                  <span className="value">
+                    {account.last_synced_at ? new Date(account.last_synced_at).toLocaleString() : 'Never'}
+                  </span>
+                </div>
               </div>
 
               <button
