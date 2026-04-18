@@ -114,6 +114,7 @@ CREATE INDEX idx_email_accounts_user_id ON email_accounts(user_id);
 
 -- -----------------------------
 -- EMAIL JOBS
+-- TODO: check if we can remove some fields
 -- -----------------------------
 CREATE TABLE email_jobs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -139,6 +140,7 @@ CREATE INDEX idx_email_jobs_account_id ON email_jobs(email_account_id);
 
 -- -----------------------------
 -- EMAIL ATTACHMENTS
+-- TODO: check if we can remove some fields
 -- -----------------------------
 CREATE TABLE email_attachments (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -166,6 +168,7 @@ CREATE INDEX idx_email_attachments_content_hash ON email_attachments(content_has
 
 -- -----------------------------
 -- AGENT OPERATIONS
+-- TODO: think if it's better to use the history table instead
 -- -----------------------------
 CREATE TABLE agent_operations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
