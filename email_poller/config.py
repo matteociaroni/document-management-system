@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     s3_secret_key: str = "mysecret"
 
     # Email encryption (Fernet key)
-    email_encryption_key: str = "L2II5RV2sn9EPmWoq1tdfHIN2wwntQfXeKLMG4lPbCc=" # "change-me-generate-a-real-fernet-key"
+    email_encryption_key: str = "L2II5RV2sn9EPmWoq1tdfHIN2wwntQfXeKLMG4lPbCc=" # TODO: "change-me-generate-a-real-fernet-key"
 
     # OAuth2 - Gmail
     google_client_id: str = ""
