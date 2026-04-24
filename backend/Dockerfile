@@ -8,8 +8,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application package under /app/app so `app.main:app` resolves correctly
 COPY app/ app/
-COPY init.sql .
-
 # Expose port
 EXPOSE 8000
 

@@ -25,7 +25,7 @@ import imap_client
 import scheduler
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("email_poller")
@@ -38,6 +38,7 @@ def _process_account(db: Session, account: EmailAccount) -> None:
     conn = None
     try:
         conn = imap_client.connect(account)
+        logger.debug("Connected to IMAP for account %s", account.email_address)
         new_emails = imap_client.fetch_new_emails(conn, account.last_uid or 0)
 
         max_uid = account.last_uid or 0
