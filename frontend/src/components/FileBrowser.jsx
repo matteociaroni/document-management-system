@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useUI } from '../context/UIContext';
 import { api } from '../services/api';
 import { Folder, File as FileIcon, MoreVertical, Download, Trash, Share2, Move, FolderPlus, Upload } from 'lucide-react';
 import ShareModal from './ShareModal';
@@ -13,6 +14,7 @@ export default function FileBrowser({ view }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [breadcrumb, setBreadcrumb] = useState([{ id: null, name: view === 'shared' ? 'Shared with me' : 'My Drive' }]);
   const [dragActive, setDragActive] = useState(false);
+  const { setLoading: setGlobalLoading, addToast } = useUI();
 
   const [shareModalData, setShareModalData] = useState(null);
   const [moveModalData, setMoveModalData] = useState(null);
@@ -45,8 +47,16 @@ export default function FileBrowser({ view }) {
   const handleCreateFolder = async () => {
     const name = prompt("Folder name:");
     if (!name) return;
-    await api.createFolder(name, currentFolderId);
-    fetchItems();
+    setGlobalLoading(true, "Creazione cartella in corso...");
+    try {
+      await api.createFolder(name, currentFolderId);
+      addToast("Cartella creata con successo", "success");
+      fetchItems();
+    } catch (err) {
+      addToast(`Errore durante la creazione: ${err.message}`, "error");
+    } finally {
+      setGlobalLoading(false);
+    }
   };
 
   const handleUploadClick = () => {
@@ -54,11 +64,15 @@ export default function FileBrowser({ view }) {
     input.type = 'file';
     input.onchange = async (e) => {
       if (e.target.files && e.target.files[0]) {
+        setGlobalLoading(true, "Caricamento file in corso...");
         try {
           await api.uploadDocument(e.target.files[0], currentFolderId);
+          addToast("File caricato con successo", "success");
           fetchItems();
         } catch (err) {
-          alert("Upload failed: " + err.message);
+          addToast(`Errore durante il caricamento: ${err.message}`, "error");
+        } finally {
+          setGlobalLoading(false);
         }
       }
     };
@@ -72,13 +86,17 @@ export default function FileBrowser({ view }) {
     input.directory = true;
     input.onchange = async (e) => {
       if (e.target.files && e.target.files.length > 0) {
+        setGlobalLoading(true, `Caricamento cartella (${e.target.files.length} file)...`);
         try {
           console.log(`Uploading ${e.target.files.length} files from folder...`);
           await api.uploadFolder(Array.from(e.target.files), currentFolderId);
+          addToast("Cartella caricata con successo", "success");
           fetchItems();
         } catch (err) {
           console.error('Folder upload error:', err);
-          alert("Folder upload failed: " + err.message);
+          addToast(`Errore durante il caricamento cartella: ${err.message}`, "error");
+        } finally {
+          setGlobalLoading(false);
         }
       }
     };
@@ -94,22 +112,30 @@ export default function FileBrowser({ view }) {
     
     if (draggedItem) {
       const { itemId, itemType } = JSON.parse(draggedItem);
+      setGlobalLoading(true, "Spostamento in corso...");
       try {
         await api.moveItem(itemId, itemType, currentFolderId);
+        addToast("Elemento spostato con successo", "success");
         fetchItems();
       } catch (err) {
-        alert(`Move failed: ${err.message}`);
+        addToast(`Errore spostamento: ${err.message}`, "error");
+      } finally {
+        setGlobalLoading(false);
       }
     } else {
       const files = e.dataTransfer.files;
       if (files && files.length > 0) {
+        setGlobalLoading(true, `Caricamento di ${files.length} file in corso...`);
         try {
           for (let i = 0; i < files.length; i++) {
             await api.uploadDocument(files[i], currentFolderId);
           }
+          addToast("File caricati con successo", "success");
           fetchItems();
         } catch (err) {
-          alert(`Upload failed: ${err.message}`);
+          addToast(`Errore durante il caricamento: ${err.message}`, "error");
+        } finally {
+          setGlobalLoading(false);
         }
       }
     }
@@ -129,17 +155,29 @@ export default function FileBrowser({ view }) {
 
   const handleDelete = async (id, type) => {
     if (window.confirm('Delete this item?')) {
-      await api.deleteItem(id, type);
-      fetchItems();
+      setGlobalLoading(true, "Eliminazione in corso...");
+      try {
+        await api.deleteItem(id, type);
+        addToast("Elemento eliminato con successo", "success");
+        fetchItems();
+      } catch (err) {
+        addToast(`Errore eliminazione: ${err.message}`, "error");
+      } finally {
+        setGlobalLoading(false);
+      }
     }
   };
 
   const handleDragMove = async (draggedId, draggedType, destinationFolderId) => {
+    setGlobalLoading(true, "Spostamento in corso...");
     try {
       await api.moveItem(draggedId, draggedType, destinationFolderId);
+      addToast("Elemento spostato con successo", "success");
       fetchItems();
     } catch (err) {
-      alert(`Move failed: ${err.message}`);
+      addToast(`Errore spostamento: ${err.message}`, "error");
+    } finally {
+      setGlobalLoading(false);
     }
   };
 
@@ -157,10 +195,14 @@ export default function FileBrowser({ view }) {
   };
 
   const handleDownload = async (doc) => {
+    setGlobalLoading(true, "Preparazione download in corso...");
     try {
       await api.downloadDocument(doc.id, doc.name);
+      addToast("Download avviato", "success");
     } catch (err) {
-      alert("Download failed: " + err.message);
+      addToast(`Errore download: ${err.message}`, "error");
+    } finally {
+      setGlobalLoading(false);
     }
   };
 

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useUI } from '../context/UIContext';
 import { ShieldAlert, Users, Database, Activity, RefreshCw, ArrowLeft, ShieldCheck, Power, Activity as ActivityLog } from 'lucide-react';
 import './AdminPage.css';
 
@@ -14,6 +15,7 @@ const AdminPage = () => {
     const [auditLogs, setAuditLogs] = useState([]);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('users');
+    const { setLoading: setGlobalLoading, addToast } = useUI();
 
     useEffect(() => {
         if (!user || user.role !== 'DOMAIN_ADMIN') {
@@ -44,22 +46,30 @@ const AdminPage = () => {
 
     const toggleUserStatus = async (targetUser) => {
         if (targetUser.id === user.id) return;
+        setGlobalLoading(true, "Aggiornamento stato utente...");
         try {
             await api.updateDomainUserStatus(targetUser.id, !targetUser.is_active);
             setDomainUsers(users => users.map(u => u.id === targetUser.id ? { ...u, is_active: !targetUser.is_active } : u));
+            addToast("Stato utente aggiornato", "success");
         } catch (error) {
-            alert("Error updating status: " + error.message);
+            addToast(`Errore aggiornamento stato: ${error.message}`, "error");
+        } finally {
+            setGlobalLoading(false);
         }
     };
 
     const toggleUserRole = async (targetUser) => {
         if (targetUser.id === user.id) return;
         const newRole = targetUser.role === 'DOMAIN_ADMIN' ? 'USER' : 'DOMAIN_ADMIN';
+        setGlobalLoading(true, "Aggiornamento ruolo utente...");
         try {
             await api.updateDomainUserRole(targetUser.id, newRole);
             setDomainUsers(users => users.map(u => u.id === targetUser.id ? { ...u, role: newRole } : u));
+            addToast("Ruolo utente aggiornato", "success");
         } catch (error) {
-            alert("Error updating role: " + error.message);
+            addToast(`Errore aggiornamento ruolo: ${error.message}`, "error");
+        } finally {
+            setGlobalLoading(false);
         }
     };
 

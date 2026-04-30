@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useUI } from '../context/UIContext';
 import { Cloud } from 'lucide-react';
 import './AuthPage.css';
 
@@ -11,18 +12,25 @@ export default function AuthPage() {
   const [error, setError] = useState('');
   
   const { login, register } = useAuth();
+  const { setLoading, addToast } = useUI();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setLoading(true, 'Autenticazione in corso...');
     try {
       if (isLogin) {
         await login(email, password);
+        addToast('Accesso effettuato con successo!', 'success');
       } else {
         await register(username, email, password);
+        addToast('Account creato con successo!', 'success');
       }
     } catch (err) {
       setError(err.message || 'Authentication failed');
+      addToast(err.message || 'Errore di autenticazione', 'error');
+    } finally {
+      setLoading(false);
     }
   };
 

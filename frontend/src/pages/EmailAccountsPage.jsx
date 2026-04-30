@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { Mail, Plus, Trash2, CheckCircle, AlertCircle } from 'lucide-react';
+import { useUI } from '../context/UIContext';
 import './EmailAccountsPage.css';
 
 const EmailAccountForm = ({ onClose, onSuccess }) => {
@@ -13,7 +14,7 @@ const EmailAccountForm = ({ onClose, onSuccess }) => {
     credentials: '',
   });
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const { setLoading: setGlobalLoading, addToast } = useUI();
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -26,15 +27,17 @@ const EmailAccountForm = ({ onClose, onSuccess }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    setLoading(true);
+    setGlobalLoading(true, "Creazione account in corso...");
 
     try {
       await api.createEmailAccount(formData);
+      addToast("Account aggiunto con successo", "success");
       onSuccess();
     } catch (err) {
       setError(err.message);
+      addToast(`Errore: ${err.message}`, "error");
     } finally {
-      setLoading(false);
+      setGlobalLoading(false);
     }
   };
 
@@ -124,8 +127,8 @@ const EmailAccountForm = ({ onClose, onSuccess }) => {
 
         <div className="modal-footer">
           <button onClick={onClose} className="btn btn-secondary">Cancel</button>
-          <button onClick={handleSubmit} disabled={loading} className="btn btn-primary">
-            {loading ? 'Creating...' : 'Create Account'}
+          <button onClick={handleSubmit} className="btn btn-primary">
+            Create Account
           </button>
         </div>
       </div>
@@ -140,6 +143,7 @@ export default function EmailAccountsPage() {
   const [testing, setTesting] = useState(null);
   const [updatingSync, setUpdatingSync] = useState(null);
   const [testResults, setTestResults] = useState({});
+  const { setLoading: setGlobalLoading, addToast } = useUI();
 
   useEffect(() => {
     loadAccounts();
@@ -159,41 +163,56 @@ export default function EmailAccountsPage() {
 
   const handleDelete = async (accountId) => {
     if (!confirm('Delete this email account?')) return;
+    setGlobalLoading(true, "Eliminazione account in corso...");
     try {
       await api.deleteEmailAccount(accountId);
       setAccounts(accounts.filter(a => a.id !== accountId));
+      addToast("Account eliminato", "success");
     } catch (err) {
-      alert('Error deleting account: ' + err.message);
+      addToast(`Errore eliminazione account: ${err.message}`, "error");
+    } finally {
+      setGlobalLoading(false);
     }
   };
 
   const handleTest = async (account) => {
     setTesting(account.id);
+    setGlobalLoading(true, "Test connessione in corso...");
     try {
       const result = await api.testEmailAccount(account.id);
       setTestResults(prev => ({
         ...prev,
         [account.id]: result
       }));
+      if (result.success) {
+        addToast("Connessione riuscita!", "success");
+      } else {
+        addToast(`Test fallito: ${result.message}`, "error");
+      }
     } catch (err) {
       setTestResults(prev => ({
         ...prev,
         [account.id]: { success: false, message: err.message }
       }));
+      addToast(`Test fallito: ${err.message}`, "error");
     } finally {
       setTesting(null);
+      setGlobalLoading(false);
     }
   };
 
   const handleToggleSync = async (account) => {
     setUpdatingSync(account.id);
+    setGlobalLoading(true, "Aggiornamento stato...");
     try {
       const updated = await api.updateEmailAccount(account.id, { is_active: !account.is_active });
       setAccounts(prev => prev.map(a => (a.id === account.id ? updated : a)));
+      addToast(updated.is_active ? "Sincronizzazione attivata" : "Sincronizzazione disattivata", "success");
     } catch (err) {
-      alert('Error updating sync status: ' + err.message);
+      addToast(`Errore aggiornamento stato: ${err.message}`, "error");
     } finally {
       setUpdatingSync(null);
+      setGlobalLoading(false);
     }
   };
 
