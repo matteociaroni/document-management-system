@@ -14,6 +14,7 @@ export default function FileBrowser({ view }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [breadcrumb, setBreadcrumb] = useState([{ id: null, name: view === 'shared' ? 'Shared with me' : 'My Drive' }]);
   const [dragActive, setDragActive] = useState(false);
+  const [agentModifiedFolders, setAgentModifiedFolders] = useState(new Set());
   const { setLoading: setGlobalLoading, addToast } = useUI();
 
   const [shareModalData, setShareModalData] = useState(null);
@@ -40,8 +41,31 @@ export default function FileBrowser({ view }) {
     }
   };
 
+  const fetchAgentOperations = async () => {
+    try {
+      const ops = await api.getAgentOperations();
+      const readMap = JSON.parse(localStorage.getItem('dms_read_agent_folders') || '{}');
+      const unread = new Set();
+      
+      ops.forEach(op => {
+        if (op.details && op.details.folder_id) {
+          const folderId = op.details.folder_id;
+          const opTime = new Date(op.created_at).getTime();
+          const readTime = readMap[folderId] || 0;
+          if (opTime > readTime) {
+            unread.add(folderId);
+          }
+        }
+      });
+      setAgentModifiedFolders(unread);
+    } catch (err) {
+      console.error('Failed to fetch agent operations', err);
+    }
+  };
+
   useEffect(() => {
     fetchItems();
+    fetchAgentOperations();
   }, [view, currentFolderId]);
 
   const handleCreateFolder = async () => {
@@ -185,6 +209,17 @@ export default function FileBrowser({ view }) {
     setCurrentFolderId(folder.id);
     setCurrentFolderPermission(folder.permission || null);
     setBreadcrumb([...breadcrumb, { id: folder.id, name: folder.name, permission: folder.permission || null }]);
+    
+    // Mark as read
+    const readMap = JSON.parse(localStorage.getItem('dms_read_agent_folders') || '{}');
+    readMap[folder.id] = Date.now();
+    localStorage.setItem('dms_read_agent_folders', JSON.stringify(readMap));
+    
+    setAgentModifiedFolders(prev => {
+      const next = new Set(prev);
+      next.delete(folder.id);
+      return next;
+    });
   };
 
   const navigateBreadcrumb = (index) => {
@@ -261,6 +296,7 @@ export default function FileBrowser({ view }) {
               isShared={view === 'shared'}
               currentFolderPermission={currentFolderPermission}
               currentUser={currentUser}
+              isAgentModified={agentModifiedFolders.has(f.id)}
               onNavigate={() => navigateToFolder(f)}
               onDelete={() => handleDelete(f.id, 'folder')}
               onShare={() => setShareModalData({ id: f.id, type: 'folder' })}
@@ -312,7 +348,7 @@ export default function FileBrowser({ view }) {
   );
 }
 
-function ItemCard({ item, type, isShared, currentFolderPermission, currentUser, onNavigate, onDownload, onDelete, onShare, onMove, onDragMove }) {
+function ItemCard({ item, type, isShared, currentFolderPermission, currentUser, isAgentModified, onNavigate, onDownload, onDelete, onShare, onMove, onDragMove }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const menuRef = useRef(null);
@@ -391,7 +427,14 @@ function ItemCard({ item, type, isShared, currentFolderPermission, currentUser, 
       onClick={type === 'folder' ? onNavigate : null}
     >
       <div className="item-icon">
-        {type === 'folder' ? <Folder size={32} color="var(--brand-primary)" fill="#dbeafe" /> : <FileIcon size={32} color="#64748b" />}
+        {type === 'folder' ? (
+          <div className="folder-icon-wrapper">
+            <Folder size={32} color="var(--brand-primary)" fill="#dbeafe" />
+            {isAgentModified && <span className="agent-indicator"></span>}
+          </div>
+        ) : (
+          <FileIcon size={32} color="#64748b" />
+        )}
       </div>
       <div className="item-info">
         <span className="item-name">{item.name}</span>

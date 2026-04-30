@@ -112,3 +112,18 @@
   position: relative;
   overflow-y: auto;
 }
+
+.nav-section-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1rem 1.5rem 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.nav-section-title:first-child {
+  margin-top: 0;
+  padding-top: 0;
+}

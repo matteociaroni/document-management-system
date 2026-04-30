@@ -320,6 +320,11 @@ export const api = {
     return await handleResponse(res);
   },
 
+  async getAgentOperations() {
+    const res = await fetch(`${API_URL}/agent/operations?limit=200`, { headers: getHeaders() });
+    return await handleResponse(res);
+  },
+
   // Admin capabilities
   async getDomainUsers() {
     const res = await fetch(`${API_URL}/admin/users`, { headers: getHeaders() });

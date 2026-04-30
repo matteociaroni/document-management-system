@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { LogOut, HardDrive, Users, Clock, ShieldEllipsis, Mail } from 'lucide-react';
+import { LogOut, HardDrive, Users, Clock, ShieldEllipsis, Mail, Bot } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import FileBrowser from '../components/FileBrowser';
 import HistoryView from '../components/HistoryView';
 import EmailAccountsPage from './EmailAccountsPage';
+import AgentHistoryView from '../components/AgentHistoryView';
 import './DrivePage.css';
 
 export default function DrivePage() {
@@ -21,6 +22,7 @@ export default function DrivePage() {
         </div>
 
         <nav className="sidebar-nav">
+          <div className="nav-section-title">Drive</div>
           <button
             className={`nav-item ${currentView === 'my-drive' ? 'active' : ''}`}
             onClick={() => setCurrentView('my-drive')}
@@ -45,6 +47,14 @@ export default function DrivePage() {
             History
           </button>
 
+          <div className="nav-section-title">Agentic Integration</div>
+          <button
+            className={`nav-item ${currentView === 'agent-history' ? 'active' : ''}`}
+            onClick={() => setCurrentView('agent-history')}
+          >
+            <Bot size={20} />
+            Agent History
+          </button>
           <button
             className={`nav-item ${currentView === 'email-accounts' ? 'active' : ''}`}
             onClick={() => setCurrentView('email-accounts')}
@@ -80,6 +90,7 @@ export default function DrivePage() {
         {currentView === 'my-drive' && <FileBrowser view="my-drive" />}
         {currentView === 'shared' && <FileBrowser view="shared" />}
         {currentView === 'history' && <HistoryView />}
+        {currentView === 'agent-history' && <AgentHistoryView />}
         {currentView === 'email-accounts' && <EmailAccountsPage />}
       </main>
     </div>
