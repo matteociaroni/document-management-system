@@ -50,7 +50,7 @@ const EmailAccountForm = ({ onClose, onSuccess }) => {
         </div>
         <form onSubmit={handleSubmit} className="modal-form">
           {error && <div className="modal-alert error">{error}</div>}
-          
+
           <div className="form-group">
             <label className="form-label">Email Address</label>
             <input

@@ -21,7 +21,7 @@ const handleResponse = async (res) => {
     try {
       const data = await res.json();
       msg = data.detail || data.error || msg;
-    } catch(e) {}
+    } catch (e) { }
     throw new Error(msg);
   }
   return res.json();
@@ -35,13 +35,13 @@ export const api = {
       body: JSON.stringify({ email, password })
     });
     const data = await handleResponse(res);
-    
+
     // Fetch profile
     const meRes = await fetch(`${API_URL}/auth/me`, {
       headers: { 'Authorization': `Bearer ${data.access_token}` }
     });
     const me = await handleResponse(meRes);
-    
+
     const user = { ...me, access_token: data.access_token };
     localStorage.setItem('dms_user', JSON.stringify(user));
     this.addHistory(`Logged in as ${email}`);
@@ -71,21 +71,21 @@ export const api = {
   async getDirectoryContents(folderId = null) {
     const query = folderId ? `?parent_id=${folderId}` : '';
     const dQuery = folderId ? `?folder_id=${folderId}` : '';
-    
+
     const [folders, documents] = await Promise.all([
       fetch(`${API_URL}/folders${query}`, { headers: getHeaders() }).then(handleResponse),
       fetch(`${API_URL}/documents${dQuery}`, { headers: getHeaders() }).then(handleResponse)
     ]);
-    
+
     return { folders, documents };
   },
 
   async getSharedWithMe() {
     const permissions = await fetch(`${API_URL}/permissions`, { headers: getHeaders() }).then(handleResponse);
-    
+
     const folders = [];
     const documents = [];
-    
+
     for (const p of permissions) {
       if (p.folder_id) {
         try {
@@ -150,14 +150,14 @@ export const api = {
       headers: getHeaders()
     });
     await handleResponse(confirmRes);
-    
+
     this.addHistory(`Uploaded document "${file.name}"`);
     return documentId;
   },
 
   async uploadFolder(files, rootFolderId = null) {
     const folderMap = {}; // Maps folder paths to folder IDs
-    
+
     for (const file of files) {
       try {
         // Get the folder path from the file
@@ -167,19 +167,19 @@ export const api = {
           await this.uploadDocument(file, rootFolderId);
           continue;
         }
-        
+
         const pathParts = webkitPath.split('/');
         const fileName = pathParts[pathParts.length - 1]; // Just the filename
-        
+
         // Build folder structure
         let currentFolderId = rootFolderId;
         const folderPath = pathParts.slice(0, -1).join('/');
-        
+
         if (folderPath && !folderMap[folderPath]) {
           // Create folder structure if it doesn't exist
           for (let i = 0; i < pathParts.length - 1; i++) {
             const partialPath = pathParts.slice(0, i + 1).join('/');
-            
+
             if (!folderMap[partialPath]) {
               const folderName = pathParts[i];
               try {
@@ -205,7 +205,7 @@ export const api = {
         } else if (folderPath) {
           currentFolderId = folderMap[folderPath];
         }
-        
+
         // Upload file to the correct folder with correct name
         if (file.size > 0) { // Skip empty files
           await this.uploadDocument(file, currentFolderId);
@@ -215,17 +215,17 @@ export const api = {
         throw new Error(`Failed to upload: ${err.message}`);
       }
     }
-    
+
     this.addHistory(`Uploaded folder with ${files.length} files`);
   },
 
   async downloadDocument(documentId, filename) {
     const res = await fetch(`${API_URL}/documents/${documentId}/download`, { headers: getHeaders() });
     if (!res.ok) {
-        const errorText = await res.text();
-        throw new Error(`Download failed: ${res.status} ${errorText}`);
+      const errorText = await res.text();
+      throw new Error(`Download failed: ${res.status} ${errorText}`);
     }
-    
+
     // Create a temporary link to trigger download securely
     const blob = await res.blob();
     const url = window.URL.createObjectURL(blob);
@@ -236,7 +236,7 @@ export const api = {
     a.click();
     document.body.removeChild(a);
     window.URL.revokeObjectURL(url);
-    
+
     this.addHistory(`Downloaded document "${filename}"`);
   },
 
@@ -279,7 +279,7 @@ export const api = {
       folder_id: type === 'folder' ? id : null,
       document_id: type === 'document' ? id : null
     };
-    
+
     const res = await fetch(`${API_URL}/permissions/share`, {
       method: 'POST',
       headers: getHeaders(),
@@ -291,8 +291,8 @@ export const api = {
 
   async getItemPermissions(id, type) {
     const query = `?${type === 'folder' ? 'folder_id' : 'document_id'}=${id}`;
-    const res = await fetch(`${API_URL}/permissions/resource/dummy${query}`, { 
-      headers: getHeaders() 
+    const res = await fetch(`${API_URL}/permissions/resource/dummy${query}`, {
+      headers: getHeaders()
     });
     return await handleResponse(res);
   },
