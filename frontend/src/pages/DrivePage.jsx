@@ -49,18 +49,18 @@ export default function DrivePage() {
 
           <div className="nav-section-title">Agentic Integration</div>
           <button
-            className={`nav-item ${currentView === 'agent-history' ? 'active' : ''}`}
-            onClick={() => setCurrentView('agent-history')}
-          >
-            <Bot size={20} />
-            Agent History
-          </button>
-          <button
             className={`nav-item ${currentView === 'email-accounts' ? 'active' : ''}`}
             onClick={() => setCurrentView('email-accounts')}
           >
             <Mail size={20} />
             Email Accounts
+          </button>
+          <button
+            className={`nav-item ${currentView === 'agent-history' ? 'active' : ''}`}
+            onClick={() => setCurrentView('agent-history')}
+          >
+            <Bot size={20} />
+            Agent History
           </button>
         </nav>
 
