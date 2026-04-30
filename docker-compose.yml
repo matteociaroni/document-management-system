@@ -129,15 +129,14 @@ services:
         condition: service_started
       mcp_server:
         condition: service_started
-
-  adminer:
-    image: adminer
-    container_name: adminer
-    restart: always
-    ports:
-      - "8081:8080"
-    depends_on:
-      - postgres
+  # adminer:
+  #   image: adminer
+  #   container_name: adminer
+  #   restart: always
+  #   ports:
+  #     - "8081:8080"
+  #   depends_on:
+  #     - postgres
 
 volumes:
   postgres_data:

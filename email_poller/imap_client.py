@@ -124,6 +124,17 @@ def _message_has_attachments(msg: email.message.Message) -> bool:
     return False
 
 
+def get_max_uid(conn: imaplib.IMAP4_SSL | imaplib.IMAP4) -> int:
+    """Return the highest UID currently in the INBOX, or 0 if empty."""
+    _, data = conn.uid("SEARCH", None, "ALL")
+    if not data or not data[0]:
+        return 0
+    uids = data[0].split()
+    if not uids:
+        return 0
+    return int(uids[-1])
+
+
 def fetch_new_emails(conn: imaplib.IMAP4_SSL | imaplib.IMAP4, last_uid: int) -> list[RawEmail]:
     """
     Fetch all messages with UID > last_uid that contain attachments.

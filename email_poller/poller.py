@@ -39,6 +39,16 @@ def _process_account(db: Session, account: EmailAccount) -> None:
     try:
         conn = imap_client.connect(account)
         logger.debug("Connected to IMAP for account %s", account.email_address)
+
+        # On the very first poll, initialize last_uid to max_uid to avoid fetching all historical emails.
+        if account.last_synced_at is None:
+            max_uid = imap_client.get_max_uid(conn)
+            account.last_uid = max_uid
+            account.last_synced_at = datetime.now(timezone.utc)
+            db.commit()
+            logger.info("Initialized account %s with max UID %d. Skipping old emails.", account.email_address, max_uid)
+            return
+
         new_emails = imap_client.fetch_new_emails(conn, account.last_uid or 0)
 
         max_uid = account.last_uid or 0
