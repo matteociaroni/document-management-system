@@ -148,7 +148,7 @@
 }
 
 .sync-switch input:checked+.sync-switch-slider {
-  background: #2563eb;
+  background: var(--brand-primary);
 }
 
 .sync-switch input:checked+.sync-switch-slider::before {
@@ -218,7 +218,7 @@ select {
 select:focus {
   outline: none;
   border-color: var(--brand-primary);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-primary) 20%, transparent);
 }
 
 select {
@@ -262,7 +262,7 @@ select {
 }
 
 .btn-primary:hover:not(:disabled) {
-  background-color: #2563eb;
+  background-color: var(--brand-primary-hover);
 }
 
 .btn-primary:disabled {

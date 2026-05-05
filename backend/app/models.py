@@ -1,5 +1,5 @@
 from uuid import UUID
-from sqlalchemy import Column, String, Text, BigInteger, Integer, Float, ForeignKey, DateTime, CheckConstraint, Index, Boolean, UniqueConstraint
+from sqlalchemy import Column, String, Text, BigInteger, Integer, Float, ForeignKey, DateTime, CheckConstraint, Index, Boolean, LargeBinary, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID, JSONB
 
 from sqlalchemy.orm import declarative_base, relationship
@@ -225,3 +225,14 @@ class AgentOperation(Base):
         Index("idx_agent_operations_user_id", user_id),
         Index("idx_agent_operations_created_at", created_at),
     )
+
+
+class DomainBranding(Base):
+    __tablename__ = "domain_branding"
+
+    domain = Column(String(255), primary_key=True)
+    brand_name = Column(String(100), nullable=True)
+    primary_color = Column(String(20), nullable=True)
+    logo = Column(LargeBinary, nullable=True)
+    logo_mime_type = Column(String(100), nullable=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

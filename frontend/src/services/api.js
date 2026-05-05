@@ -427,5 +427,52 @@ export const api = {
       headers: getHeaders()
     });
     return await handleResponse(res);
+  },
+
+  // Branding
+  async getMyBranding() {
+    const res = await fetch(`${API_URL}/branding/me`, { headers: getHeaders() });
+    return await handleResponse(res);
+  },
+
+  brandingLogoUrl() {
+    return `${API_URL}/branding/me/logo`;
+  },
+
+  async fetchBrandingLogoBlob() {
+    const res = await fetch(`${API_URL}/branding/me/logo`, { headers: getHeaders() });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error('Failed to fetch logo');
+    return await res.blob();
+  },
+
+  async updateBranding({ brand_name, primary_color }) {
+    const res = await fetch(`${API_URL}/admin/branding`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify({ brand_name, primary_color })
+    });
+    return await handleResponse(res);
+  },
+
+  async uploadBrandingLogo(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    const headers = getHeaders();
+    delete headers['Content-Type'];
+    const res = await fetch(`${API_URL}/admin/branding/logo`, {
+      method: 'POST',
+      headers,
+      body: formData
+    });
+    return await handleResponse(res);
+  },
+
+  async deleteBrandingLogo() {
+    const res = await fetch(`${API_URL}/admin/branding/logo`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    });
+    return await handleResponse(res);
   }
 };

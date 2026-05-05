@@ -17,14 +17,26 @@
   height: 64px;
   display: flex;
   align-items: center;
+  gap: 0.625rem;
   padding: 0 1.5rem;
   border-bottom: 1px solid var(--border-color);
+}
+
+.brand-logo {
+  height: 32px;
+  width: 32px;
+  object-fit: contain;
+  border-radius: var(--radius-md);
+  flex-shrink: 0;
 }
 
 .brand {
   font-size: 1.25rem;
   font-weight: 700;
   color: var(--brand-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sidebar-nav {

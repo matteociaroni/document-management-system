@@ -218,3 +218,18 @@ class ProposalResponse(BaseORMModel):
 
 class ProposalMoveRequest(BaseModel):
     folder_id: Optional[UUID] = None
+
+
+# --- Branding ---
+
+class BrandingResponse(BaseModel):
+    domain: str
+    brand_name: Optional[str] = None
+    primary_color: Optional[str] = None
+    has_logo: bool = False
+    updated_at: Optional[datetime] = None
+
+
+class BrandingUpdateRequest(BaseModel):
+    brand_name: Optional[str] = None
+    primary_color: Optional[str] = None

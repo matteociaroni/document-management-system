@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useBranding } from '../context/BrandingContext';
 import { LogOut, HardDrive, Users, Clock, ShieldEllipsis, Mail, Bot, Inbox } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import FileBrowser from '../components/FileBrowser';
@@ -11,6 +12,7 @@ import './DrivePage.css';
 
 export default function DrivePage() {
   const { user, logout } = useAuth();
+  const { displayName, logoUrl } = useBranding();
   const [currentView, setCurrentView] = useState('my-drive'); // my-drive | shared | history | email-accounts
   const navigate = useNavigate();
 
@@ -19,7 +21,8 @@ export default function DrivePage() {
       {/* Sidebar */}
       <aside className="sidebar">
         <div className="sidebar-header">
-          <div className="brand">DMS Cloud</div>
+          {logoUrl && <img src={logoUrl} alt="" className="brand-logo" />}
+          <div className="brand">{displayName}</div>
         </div>
 
         <nav className="sidebar-nav">

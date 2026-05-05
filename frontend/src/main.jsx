@@ -4,12 +4,15 @@ import App from './App.jsx'
 import './index.css'
 import { AuthProvider } from './context/AuthContext.jsx'
 import { UIProvider } from './context/UIContext.jsx'
+import { BrandingProvider } from './context/BrandingContext.jsx'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <UIProvider>
       <AuthProvider>
-        <App />
+        <BrandingProvider>
+          <App />
+        </BrandingProvider>
       </AuthProvider>
     </UIProvider>
   </React.StrictMode>,

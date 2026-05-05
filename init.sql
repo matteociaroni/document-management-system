@@ -187,3 +187,15 @@ CREATE TABLE agent_operations (
 
 CREATE INDEX idx_agent_operations_user_id ON agent_operations(user_id);
 CREATE INDEX idx_agent_operations_created_at ON agent_operations(created_at);
+
+-- -----------------------------
+-- DOMAIN BRANDING
+-- -----------------------------
+CREATE TABLE domain_branding (
+    domain VARCHAR(255) PRIMARY KEY,
+    brand_name VARCHAR(100),
+    primary_color VARCHAR(20),
+    logo BYTEA,
+    logo_mime_type VARCHAR(100),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);

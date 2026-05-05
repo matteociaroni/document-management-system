@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useUI } from '../context/UIContext';
 import { ShieldAlert, Users, Database, Activity, RefreshCw, ArrowLeft, ShieldCheck, Power, Activity as ActivityLog } from 'lucide-react';
+import BrandingSettings from '../components/BrandingSettings';
 import './AdminPage.css';
 
 const AdminPage = () => {
@@ -127,6 +128,7 @@ const AdminPage = () => {
                 <div className="tabs">
                     <button className={activeTab === 'users' ? 'active' : ''} onClick={() => setActiveTab('users')}>User Directory</button>
                     <button className={activeTab === 'audit' ? 'active' : ''} onClick={() => setActiveTab('audit')}>Global Audit Log</button>
+                    <button className={activeTab === 'branding' ? 'active' : ''} onClick={() => setActiveTab('branding')}>Branding</button>
                 </div>
 
                 {activeTab === 'users' && (
@@ -175,6 +177,12 @@ const AdminPage = () => {
                                 </tbody>
                             </table>
                         </div>
+                    </div>
+                )}
+
+                {activeTab === 'branding' && (
+                    <div className="tab-pane slide-up">
+                        <BrandingSettings />
                     </div>
                 )}
 
