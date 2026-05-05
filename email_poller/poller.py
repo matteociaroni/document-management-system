@@ -150,26 +150,17 @@ def poll_cycle(db: Session) -> None:
 def run_poller() -> None:
     """Entry point: blocking loop that runs poll_cycle every POLL_INTERVAL_SECONDS."""
     logger.info("Email poller started. Interval: %ds", POLL_INTERVAL_SECONDS)
-    logger.debug("Debug enabled")
 
     while True:
-        logger.debug("Before session")
         db: Session = SessionLocal()
-        logger.debug("After session")
         try:
-            logger.debug("Before poll cycle")
             poll_cycle(db)
-            logger.debug("After poll cycle")
         except Exception as e:
             logger.error("Unexpected error in poll cycle: %s", e, exc_info=True)
         finally:
-            logger.debug("Before closing")
             db.close()
-            logger.debug("After closing")
 
-        logger.debug("Before sleep")
         time.sleep(POLL_INTERVAL_SECONDS)
-        logger.debug("After sleep")
 
 if __name__ == "__main__":
     run_poller()
