@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { LogOut, HardDrive, Users, Clock, ShieldEllipsis, Mail, Bot } from 'lucide-react';
+import { LogOut, HardDrive, Users, Clock, ShieldEllipsis, Mail, Bot, Inbox } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import FileBrowser from '../components/FileBrowser';
 import HistoryView from '../components/HistoryView';
 import EmailAccountsPage from './EmailAccountsPage';
 import AgentHistoryView from '../components/AgentHistoryView';
+import InboxView from '../components/InboxView';
 import './DrivePage.css';
 
 export default function DrivePage() {
@@ -62,6 +63,13 @@ export default function DrivePage() {
             <Bot size={20} />
             Agent History
           </button>
+          <button
+            className={`nav-item ${currentView === 'inbox' ? 'active' : ''}`}
+            onClick={() => setCurrentView('inbox')}
+          >
+            <Inbox size={20} />
+            Inbox
+          </button>
         </nav>
 
         <div className="sidebar-footer">
@@ -91,6 +99,7 @@ export default function DrivePage() {
         {currentView === 'shared' && <FileBrowser view="shared" />}
         {currentView === 'history' && <HistoryView />}
         {currentView === 'agent-history' && <AgentHistoryView />}
+        {currentView === 'inbox' && <InboxView />}
         {currentView === 'email-accounts' && <EmailAccountsPage />}
       </main>
     </div>

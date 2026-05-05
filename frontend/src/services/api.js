@@ -325,6 +325,36 @@ export const api = {
     return await handleResponse(res);
   },
 
+  async listProposals() {
+    const res = await fetch(`${API_URL}/agent/proposals`, { headers: getHeaders() });
+    return await handleResponse(res);
+  },
+
+  async acceptProposal(attachmentId) {
+    const res = await fetch(`${API_URL}/agent/proposals/${attachmentId}/accept`, {
+      method: 'POST',
+      headers: getHeaders()
+    });
+    return await handleResponse(res);
+  },
+
+  async moveProposal(attachmentId, folderId) {
+    const res = await fetch(`${API_URL}/agent/proposals/${attachmentId}/move`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ folder_id: folderId })
+    });
+    return await handleResponse(res);
+  },
+
+  async rejectProposal(attachmentId) {
+    const res = await fetch(`${API_URL}/agent/proposals/${attachmentId}/reject`, {
+      method: 'POST',
+      headers: getHeaders()
+    });
+    return await handleResponse(res);
+  },
+
   // Admin capabilities
   async getDomainUsers() {
     const res = await fetch(`${API_URL}/admin/users`, { headers: getHeaders() });

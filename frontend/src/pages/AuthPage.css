@@ -74,3 +74,37 @@
 .text-btn:hover {
   color: var(--brand-primary);
 }
+
+.password-input-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.password-input-wrapper .password-input {
+  padding-right: 2.75rem;
+}
+
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 0.75rem;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  padding: 0.25rem;
+  cursor: pointer;
+  color: var(--text-secondary);
+  border-radius: var(--radius-md);
+}
+
+.password-toggle:hover {
+  color: var(--brand-primary);
+}
+
+.password-toggle:focus {
+  outline: none;
+  color: var(--brand-primary);
+}

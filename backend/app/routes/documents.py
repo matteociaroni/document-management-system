@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from uuid import UUID
 from typing import Optional
 from app.database import get_db
-from app.models import User, Document, Folder
+from app.models import User, Document, Folder, EmailAttachment
 from app.schemas import DocumentUploadRequest, DocumentUploadResponse, DocumentConfirmRequest, DocumentResponse, DownloadUrlResponse, MoveRequest
 from app.auth import get_current_user
 from app.storage import generate_upload_url, generate_download_url, get_s3_client, get_bucket_name
@@ -161,15 +161,22 @@ def list_documents(
         folder = db.query(Folder).filter(Folder.id == folder_id).first()
         if not folder:
             raise HTTPException(status_code=404, detail="Folder not found")
-        
+
         if not _has_access_to_folder(db, user.id, folder_id):
             raise HTTPException(status_code=403, detail="Access denied")
-        
+
         query = db.query(Document).filter(Document.folder_id == folder_id)
     else:
         query = db.query(Document).filter(Document.folder_id == None)
         query = query.filter(Document.owner_id == user.id)
-    
+
+    # Hide documents that are still sitting in the agent inbox awaiting user review
+    inbox_doc_ids = db.query(EmailAttachment.document_id).filter(
+        EmailAttachment.status == "in_inbox",
+        EmailAttachment.document_id.isnot(None),
+    )
+    query = query.filter(~Document.id.in_(inbox_doc_ids))
+
     return query.limit(limit).offset(offset).all()
 
 
