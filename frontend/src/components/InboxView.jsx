@@ -71,10 +71,8 @@ function FolderPickerModal({ onClose, onPick }) {
             type="button"
             className="btn-primary"
             onClick={() => onPick(currentFolderId)}
-            disabled={!currentFolderId}
-            title={!currentFolderId ? 'Seleziona una sottocartella' : undefined}
           >
-            Sposta qui
+            {currentFolderId ? 'Sposta qui' : 'Sposta in My Drive'}
           </button>
         </div>
       </div>

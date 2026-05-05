@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+from typing import Optional
 from uuid import UUID
 from app.database import get_db
 from app.models import User, EmailAttachment, EmailJob, AgentOperation, Document, Folder
@@ -101,19 +102,21 @@ def _move_document_to_folder(
     db: Session,
     attachment: EmailAttachment,
     user: User,
-    target_folder_id: UUID,
+    target_folder_id: Optional[UUID],
     log_description: str,
 ):
-    """Move the document associated with an attachment to target_folder_id and update status."""
+    """Move the document associated with an attachment to target_folder_id (None = root) and update status."""
     doc = db.query(Document).filter(Document.id == attachment.document_id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="Associated document not found")
 
-    folder = db.query(Folder).filter(Folder.id == target_folder_id).first()
-    if not folder:
-        raise HTTPException(status_code=404, detail="Target folder not found")
-    if folder.owner_id != user.id:
-        raise HTTPException(status_code=403, detail="No access to target folder")
+    folder = None
+    if target_folder_id is not None:
+        folder = db.query(Folder).filter(Folder.id == target_folder_id).first()
+        if not folder:
+            raise HTTPException(status_code=404, detail="Target folder not found")
+        if folder.owner_id != user.id:
+            raise HTTPException(status_code=403, detail="No access to target folder")
 
     doc.folder_id = target_folder_id
     attachment.status = "confirmed"
@@ -124,7 +127,10 @@ def _move_document_to_folder(
         attachment_id=attachment.id,
         operation_type="auto_filed",
         description=log_description,
-        details={"folder_id": str(target_folder_id), "folder_name": folder.name},
+        details={
+            "folder_id": str(target_folder_id) if target_folder_id else None,
+            "folder_name": folder.name if folder else "My Drive (root)",
+        },
     )
     db.add(op)
     db.commit()
@@ -220,7 +226,11 @@ def move_proposal(
         f"User moved '{attachment.filename}' to a different folder than suggested",
     )
 
-    folder = db.query(Folder).filter(Folder.id == req.folder_id).first()
+    folder = (
+        db.query(Folder).filter(Folder.id == req.folder_id).first()
+        if req.folder_id is not None
+        else None
+    )
     return ProposalResponse(
         id=attachment.id,
         filename=attachment.filename,

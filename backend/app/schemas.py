@@ -217,4 +217,4 @@ class ProposalResponse(BaseORMModel):
 
 
 class ProposalMoveRequest(BaseModel):
-    folder_id: UUID
+    folder_id: Optional[UUID] = None
