@@ -1,5 +1,32 @@
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
+// Decode JWT payload without a library (base64url → JSON)
+const decodeTokenPayload = (token) => {
+  try {
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(atob(base64));
+  } catch {
+    return null;
+  }
+};
+
+// Check if the stored JWT is expired (with a 30-second margin)
+export const isTokenExpired = () => {
+  const userStr = localStorage.getItem('dms_user');
+  if (!userStr) return true;
+  try {
+    const user = JSON.parse(userStr);
+    if (!user.access_token) return true;
+    const payload = decodeTokenPayload(user.access_token);
+    if (!payload || !payload.exp) return true;
+    // exp is in seconds, Date.now() in ms – add 30s margin
+    return payload.exp * 1000 <= Date.now() + 30_000;
+  } catch {
+    return true;
+  }
+};
+
 const getHeaders = () => {
   const userStr = localStorage.getItem('dms_user');
   const headers = {
@@ -14,9 +41,22 @@ const getHeaders = () => {
   return headers;
 };
 
-// Error handler utility
+// Force logout & redirect when the token is no longer valid
+const forceLogout = () => {
+  localStorage.removeItem('dms_user');
+  // Redirect only if we are not already on the login page
+  if (window.location.pathname !== '/login') {
+    window.location.href = '/login';
+  }
+};
+
+// Error handler utility – intercepts 401 to auto-logout on expired tokens
 const handleResponse = async (res) => {
   if (!res.ok) {
+    // If the backend tells us we're unauthorized, force a logout
+    if (res.status === 401) {
+      forceLogout();
+    }
     let msg = 'API error';
     try {
       const data = await res.json();
