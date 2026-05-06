@@ -101,6 +101,11 @@ def update_email_account(
     if req.use_ssl is not None:
         account.use_ssl = req.use_ssl
     if req.is_active is not None:
+        # When re-activating, reset last_synced_at so the poller
+        # re-initialises last_uid to the current max UID on the server,
+        # skipping emails that arrived while the account was paused.
+        if req.is_active and not account.is_active:
+            account.last_synced_at = None
         account.is_active = req.is_active
     if req.credentials is not None:
         account.encrypted_credentials = encrypt_credentials(req.credentials)
