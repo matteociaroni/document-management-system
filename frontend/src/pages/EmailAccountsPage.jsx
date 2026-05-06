@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { Mail, Plus, Trash2, CheckCircle, AlertCircle } from 'lucide-react';
 import { useUI } from '../context/UIContext';
+import { ConfirmDialog } from '../components/Dialog';
 import './EmailAccountsPage.css';
 
 const EmailAccountForm = ({ onClose, onSuccess }) => {
@@ -143,6 +144,7 @@ export default function EmailAccountsPage() {
   const [testing, setTesting] = useState(null);
   const [updatingSync, setUpdatingSync] = useState(null);
   const [testResults, setTestResults] = useState({});
+  const [confirmDelete, setConfirmDelete] = useState({ open: false });
   const { setLoading: setGlobalLoading, addToast } = useUI();
 
   useEffect(() => {
@@ -161,18 +163,24 @@ export default function EmailAccountsPage() {
     }
   };
 
-  const handleDelete = async (accountId) => {
-    if (!confirm('Delete this email account?')) return;
-    setGlobalLoading(true, "Eliminazione account in corso...");
-    try {
-      await api.deleteEmailAccount(accountId);
-      setAccounts(accounts.filter(a => a.id !== accountId));
-      addToast("Account eliminato", "success");
-    } catch (err) {
-      addToast(`Errore eliminazione account: ${err.message}`, "error");
-    } finally {
-      setGlobalLoading(false);
-    }
+  const handleDelete = (accountId) => {
+    setConfirmDelete({
+      open: true,
+      onConfirm: async () => {
+        setConfirmDelete({ open: false });
+        setGlobalLoading(true, "Eliminazione account in corso...");
+        try {
+          await api.deleteEmailAccount(accountId);
+          setAccounts(accounts.filter(a => a.id !== accountId));
+          addToast("Account eliminato", "success");
+        } catch (err) {
+          addToast(`Errore eliminazione account: ${err.message}`, "error");
+        } finally {
+          setGlobalLoading(false);
+        }
+      },
+      onCancel: () => setConfirmDelete({ open: false }),
+    });
   };
 
   const handleTest = async (account) => {
@@ -331,6 +339,17 @@ export default function EmailAccountsPage() {
           ))
         )}
       </div>
+
+      <ConfirmDialog
+        isOpen={confirmDelete.open}
+        title="Elimina account email"
+        message="L'account verrà rimosso definitivamente e la sincronizzazione delle email si interromperà. Continuare?"
+        variant="danger"
+        confirmLabel="Elimina account"
+        cancelLabel="Annulla"
+        onConfirm={confirmDelete.onConfirm}
+        onCancel={confirmDelete.onCancel}
+      />
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { api } from '../services/api';
 import { Folder, File as FileIcon, MoreVertical, Download, Trash, Share2, Move, FolderPlus, Upload } from 'lucide-react';
 import ShareModal from './ShareModal';
 import MoveModal from './MoveModal';
+import { ConfirmDialog, PromptDialog } from './Dialog';
 import './FileBrowser.css';
 
 export default function FileBrowser({ view }) {
@@ -19,6 +20,10 @@ export default function FileBrowser({ view }) {
 
   const [shareModalData, setShareModalData] = useState(null);
   const [moveModalData, setMoveModalData] = useState(null);
+
+  // Custom dialog state
+  const [promptDialog, setPromptDialog] = useState({ open: false });
+  const [confirmDialog, setConfirmDialog] = useState({ open: false });
 
   useEffect(() => {
     setCurrentUser(api.getCurrentUser());
@@ -68,19 +73,27 @@ export default function FileBrowser({ view }) {
     fetchAgentOperations();
   }, [view, currentFolderId]);
 
-  const handleCreateFolder = async () => {
-    const name = prompt("Folder name:");
-    if (!name) return;
-    setGlobalLoading(true, "Creazione cartella in corso...");
-    try {
-      await api.createFolder(name, currentFolderId);
-      addToast("Cartella creata con successo", "success");
-      fetchItems();
-    } catch (err) {
-      addToast(`Errore durante la creazione: ${err.message}`, "error");
-    } finally {
-      setGlobalLoading(false);
-    }
+  const handleCreateFolder = () => {
+    setPromptDialog({
+      open: true,
+      title: 'Nuova cartella',
+      inputLabel: 'Nome cartella',
+      placeholder: 'es. Documenti 2025',
+      onConfirm: async (name) => {
+        setPromptDialog({ open: false });
+        setGlobalLoading(true, "Creazione cartella in corso...");
+        try {
+          await api.createFolder(name, currentFolderId);
+          addToast("Cartella creata con successo", "success");
+          fetchItems();
+        } catch (err) {
+          addToast(`Errore durante la creazione: ${err.message}`, "error");
+        } finally {
+          setGlobalLoading(false);
+        }
+      },
+      onCancel: () => setPromptDialog({ open: false }),
+    });
   };
 
   const handleUploadClick = () => {
@@ -177,19 +190,28 @@ export default function FileBrowser({ view }) {
     setDragActive(false);
   };
 
-  const handleDelete = async (id, type) => {
-    if (window.confirm('Delete this item?')) {
-      setGlobalLoading(true, "Eliminazione in corso...");
-      try {
-        await api.deleteItem(id, type);
-        addToast("Elemento eliminato con successo", "success");
-        fetchItems();
-      } catch (err) {
-        addToast(`Errore eliminazione: ${err.message}`, "error");
-      } finally {
-        setGlobalLoading(false);
-      }
-    }
+  const handleDelete = (id, type) => {
+    setConfirmDialog({
+      open: true,
+      title: 'Elimina elemento',
+      message: 'Questa azione è irreversibile. Sei sicuro di voler eliminare questo elemento?',
+      confirmLabel: 'Elimina',
+      variant: 'danger',
+      onConfirm: async () => {
+        setConfirmDialog({ open: false });
+        setGlobalLoading(true, "Eliminazione in corso...");
+        try {
+          await api.deleteItem(id, type);
+          addToast("Elemento eliminato con successo", "success");
+          fetchItems();
+        } catch (err) {
+          addToast(`Errore eliminazione: ${err.message}`, "error");
+        } finally {
+          setGlobalLoading(false);
+        }
+      },
+      onCancel: () => setConfirmDialog({ open: false }),
+    });
   };
 
   const handleDragMove = async (draggedId, draggedType, destinationFolderId) => {
@@ -344,6 +366,28 @@ export default function FileBrowser({ view }) {
           }}
         />
       )}
+
+      <PromptDialog
+        isOpen={promptDialog.open}
+        title={promptDialog.title}
+        inputLabel={promptDialog.inputLabel}
+        placeholder={promptDialog.placeholder}
+        confirmLabel="Crea"
+        cancelLabel="Annulla"
+        onConfirm={promptDialog.onConfirm}
+        onCancel={promptDialog.onCancel}
+      />
+
+      <ConfirmDialog
+        isOpen={confirmDialog.open}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        variant={confirmDialog.variant}
+        confirmLabel={confirmDialog.confirmLabel}
+        cancelLabel="Annulla"
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={confirmDialog.onCancel}
+      />
     </div>
   );
 }

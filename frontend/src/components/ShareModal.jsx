@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { X, Trash2 } from 'lucide-react';
 import { useUI } from '../context/UIContext';
+import { ConfirmDialog } from './Dialog';
 import './Modal.css';
 
 export default function ShareModal({ itemId, type, onClose }) {
@@ -11,6 +12,7 @@ export default function ShareModal({ itemId, type, onClose }) {
   const [success, setSuccess] = useState('');
   const [permissions, setPermissions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [confirmRevoke, setConfirmRevoke] = useState({ open: false });
   const { setLoading: setGlobalLoading, addToast } = useUI();
 
   useEffect(() => {
@@ -49,19 +51,25 @@ export default function ShareModal({ itemId, type, onClose }) {
     }
   };
 
-  const handleRevoke = async (permissionId) => {
-    if (!window.confirm('Revoke this sharing?')) return;
-    setGlobalLoading(true, "Rimozione permessi...");
-    try {
-      await api.deletePermission(permissionId);
-      addToast("Permessi rimossi", "success");
-      await fetchPermissions();
-    } catch (err) {
-      setError(err.message);
-      addToast(`Errore rimozione: ${err.message}`, "error");
-    } finally {
-      setGlobalLoading(false);
-    }
+  const handleRevoke = (permissionId) => {
+    setConfirmRevoke({
+      open: true,
+      onConfirm: async () => {
+        setConfirmRevoke({ open: false });
+        setGlobalLoading(true, "Rimozione permessi...");
+        try {
+          await api.deletePermission(permissionId);
+          addToast("Permessi rimossi", "success");
+          await fetchPermissions();
+        } catch (err) {
+          setError(err.message);
+          addToast(`Errore rimozione: ${err.message}`, "error");
+        } finally {
+          setGlobalLoading(false);
+        }
+      },
+      onCancel: () => setConfirmRevoke({ open: false }),
+    });
   };
 
   return (
@@ -128,6 +136,17 @@ export default function ShareModal({ itemId, type, onClose }) {
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        isOpen={confirmRevoke.open}
+        title="Rimuovi condivisione"
+        message="Questa persona perderà l'accesso all'elemento. Vuoi procedere?"
+        variant="danger"
+        confirmLabel="Rimuovi accesso"
+        cancelLabel="Annulla"
+        onConfirm={confirmRevoke.onConfirm}
+        onCancel={confirmRevoke.onCancel}
+      />
     </div>
   );
 }
