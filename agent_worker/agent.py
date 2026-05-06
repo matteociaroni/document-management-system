@@ -49,6 +49,7 @@ class FilingInput(BaseIOSchema):
     """Input for the document filing agent."""
     email_subject: str = Field(..., description="Subject line of the email")
     email_sender: str = Field(..., description="Sender address")
+    email_body: str | None = Field(None, description="Plain-text body of the email (truncated to ~2000 chars)")
     attachments: list[AttachmentInfo] = Field(..., description="List of attachments to classify")
 
 
@@ -87,6 +88,7 @@ def run_filing_agent(
     email_subject: str,
     email_sender: str,
     attachments: list[dict],
+    email_body: str | None = None,
 ) -> FilingOutput:
     """
     Classify email attachments into DMS folders using Atomic Agents.
@@ -96,6 +98,7 @@ def run_filing_agent(
         email_subject: Subject line of the email.
         email_sender: Sender address.
         attachments: List of dicts with keys: filename, mime_type, size_bytes, text_preview.
+        email_body: Optional plain-text body of the email (truncated).
 
     Returns:
         FilingOutput with one AttachmentDecision per attachment.
@@ -113,9 +116,12 @@ def run_filing_agent(
             "The available folder structure is provided in the context below.",
         ],
         steps=[
-            "Read the email subject and sender to understand the document category.",
+            "Read the email subject, sender, and body text to understand the document category and context.",
+            "Pay special attention to the email body: it often describes what the attachments are about "
+            "(e.g. 'please find the invoice attached', 'here is the project report').",
             "For each attachment, analyze its filename, MIME type, size, and any text preview.",
-            "Match each attachment to the most semantically appropriate folder from the tree.",
+            "Combine email context (subject + body) with attachment metadata to match each attachment "
+            "to the most semantically appropriate folder from the tree.",
             "If no folder is a good match, set folder_id to null.",
             "Set confidence to 1.0 only if you are certain. Use lower values for ambiguous cases.",
         ],
@@ -141,6 +147,7 @@ def run_filing_agent(
         FilingInput(
             email_subject=email_subject,
             email_sender=email_sender,
+            email_body=email_body,
             attachments=[
                 AttachmentInfo(
                     filename=a["filename"],

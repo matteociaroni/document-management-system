@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from config import settings
 from agent import run_filing_agent
 from database import SessionLocal
-from eml_parser import parse_attachments
+from eml_parser import parse_email
 from models import AgentOperation, Document, EmailAccount, EmailAttachment, EmailJob, User
 from storage import ensure_bucket, get_bucket_name, get_s3_client, load_eml, EML_BUCKET
 
@@ -78,7 +78,9 @@ def _process_job(db: Session, job: EmailJob) -> None:
         raise ValueError(f"Job {job.id} has no eml_storage_key")
 
     raw_bytes = load_eml(job.eml_storage_key)
-    parsed_attachments = parse_attachments(raw_bytes)
+    parsed = parse_email(raw_bytes)
+    email_body = parsed.body_text
+    parsed_attachments = parsed.attachments
 
     if not parsed_attachments:
         logger.info("Job %s has no attachments — marking done", job.id)
@@ -150,6 +152,7 @@ def _process_job(db: Session, job: EmailJob) -> None:
         user_id=str(user.id),
         email_subject=job.subject or "(no subject)",
         email_sender=job.sender or "(unknown sender)",
+        email_body=email_body,
         attachments=attachment_dicts,
     )
 

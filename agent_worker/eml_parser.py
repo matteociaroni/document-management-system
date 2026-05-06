@@ -1,13 +1,16 @@
-"""Parse a raw .eml file and extract its attachments."""
+"""Parse a raw .eml file and extract its body text and attachments."""
 
 import email
 import email.header
+import html
 import logging
+import re
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
 TEXT_PREVIEW_CHARS = 500
+BODY_MAX_CHARS = 2000
 
 
 @dataclass
@@ -17,6 +20,13 @@ class ParsedAttachment:
     size_bytes: int
     content: bytes
     text_preview: str | None
+
+
+@dataclass
+class ParsedEmail:
+    """Parsed email containing the body text and all attachments."""
+    body_text: str | None
+    attachments: list[ParsedAttachment]
 
 
 def _decode_filename(raw: str) -> str:
@@ -30,12 +40,82 @@ def _decode_filename(raw: str) -> str:
     return "".join(decoded)
 
 
+def _strip_html(html_text: str) -> str:
+    """Crude HTML-to-text: strip tags, decode entities, collapse whitespace."""
+    text = re.sub(r"<br\s*/?>", "\n", html_text, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = html.unescape(text)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def _extract_body(msg: email.message.Message) -> str | None:
+    """
+    Extract the plain-text body from an email message.
+    Falls back to stripped HTML if no text/plain part is found.
+    Truncates to BODY_MAX_CHARS.
+    """
+    plain_parts: list[str] = []
+    html_parts: list[str] = []
+
+    for part in msg.walk():
+        # Skip attachments
+        if part.get_content_disposition() in ("attachment", "inline") and part.get_filename():
+            continue
+
+        ct = part.get_content_type()
+        payload = part.get_payload(decode=True)
+        if payload is None:
+            continue
+
+        charset = part.get_content_charset() or "utf-8"
+        try:
+            decoded = payload.decode(charset, errors="replace")
+        except Exception:
+            continue
+
+        if ct == "text/plain":
+            plain_parts.append(decoded)
+        elif ct == "text/html":
+            html_parts.append(decoded)
+
+    if plain_parts:
+        body = "\n".join(plain_parts)
+    elif html_parts:
+        body = _strip_html("\n".join(html_parts))
+    else:
+        return None
+
+    body = body.strip()
+    if not body:
+        return None
+    return body[:BODY_MAX_CHARS]
+
+
 def parse_attachments(raw_bytes: bytes) -> list[ParsedAttachment]:
     """
     Extract all attachments from a raw RFC 822 email.
     Returns one ParsedAttachment per file found.
     """
     msg = email.message_from_bytes(raw_bytes)
+    return _extract_attachments(msg)
+
+
+def parse_email(raw_bytes: bytes) -> ParsedEmail:
+    """
+    Parse a raw RFC 822 email and return both the body text and attachments.
+    """
+    msg = email.message_from_bytes(raw_bytes)
+    body = _extract_body(msg)
+    attachments = _extract_attachments(msg)
+    logger.info("Parsed email: body=%d chars, %d attachment(s)",
+                len(body) if body else 0, len(attachments))
+    return ParsedEmail(body_text=body, attachments=attachments)
+
+
+def _extract_attachments(msg: email.message.Message) -> list[ParsedAttachment]:
+    """Extract all attachments from an already-parsed email.message.Message."""
     results: list[ParsedAttachment] = []
 
     for part in msg.walk():
