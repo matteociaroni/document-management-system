@@ -35,6 +35,12 @@ services:
     command: 's3 -filer="filer:8888" -ip.bind=0.0.0.0 -config="/etc/seaweedfs/s3.json"'
     depends_on:
       - filer
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8333/ || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
 
   postgres:
     image: postgres:16
@@ -70,7 +76,7 @@ services:
       postgres:
         condition: service_healthy
       s3:
-        condition: service_started
+        condition: service_healthy
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
   frontend:
@@ -97,7 +103,7 @@ services:
       postgres:
         condition: service_healthy
       s3:
-        condition: service_started
+        condition: service_healthy
 
   mcp_server:
     build: ./mcp_server
@@ -109,6 +115,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import socket; s=socket.create_connection(('localhost',8001),2); s.close()\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
 
   agent_worker:
     build: ./agent_worker
@@ -126,9 +138,9 @@ services:
       postgres:
         condition: service_healthy
       s3:
-        condition: service_started
+        condition: service_healthy
       mcp_server:
-        condition: service_started
+        condition: service_healthy
   # adminer:
   #   image: adminer
   #   container_name: adminer
