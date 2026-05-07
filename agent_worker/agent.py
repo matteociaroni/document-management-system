@@ -35,7 +35,17 @@ class AttachmentInfo(BaseIOSchema):
     filename: str = Field(..., description="Name of the file")
     mime_type: str = Field(..., description="MIME type of the file")
     size_bytes: int = Field(..., description="File size in bytes")
-    text_preview: str | None = Field(None, description="First 500 chars of content (text files only)")
+    text_preview: str | None = Field(
+        None,
+        description=(
+            "Extracted text content of the attachment. "
+            "Text files: the first ~500 chars. "
+            "PDFs: text from the first and last pages (separated by '[...]'). "
+            "DOCX: head and tail of the concatenated paragraph text. "
+            "XLSX: tab-separated rows from the first sheets, prefixed by '[Sheet: <name>]'. "
+            "Empty/None for unsupported formats or scanned/image-only PDFs."
+        ),
+    )
 
 
 class AttachmentDecision(BaseModel):
