@@ -3,6 +3,9 @@ import { useAuth } from './context/AuthContext';
 import AuthPage from './pages/AuthPage';
 import DrivePage from './pages/DrivePage';
 import AdminPage from './pages/AdminPage';
+import EmailAccountsPage from './pages/EmailAccountsPage';
+import GlobalToast from './components/GlobalToast';
+import GlobalLoading from './components/GlobalLoading';
 
 const ProtectedRoute = ({ children }) => {
   const { user } = useAuth();
@@ -27,8 +30,15 @@ function App() {
             <AdminPage />
           </ProtectedRoute>
         } />
+        <Route path="/email-accounts" element={
+          <ProtectedRoute>
+            <EmailAccountsPage />
+          </ProtectedRoute>
+        } />
         <Route path="/" element={<Navigate to={user ? "/drive" : "/login"} replace />} />
       </Routes>
+      <GlobalToast />
+      <GlobalLoading />
     </BrowserRouter>
   );
 }

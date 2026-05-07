@@ -1,5 +1,32 @@
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
+// Decode JWT payload without a library (base64url → JSON)
+const decodeTokenPayload = (token) => {
+  try {
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(atob(base64));
+  } catch {
+    return null;
+  }
+};
+
+// Check if the stored JWT is expired (with a 30-second margin)
+export const isTokenExpired = () => {
+  const userStr = localStorage.getItem('dms_user');
+  if (!userStr) return true;
+  try {
+    const user = JSON.parse(userStr);
+    if (!user.access_token) return true;
+    const payload = decodeTokenPayload(user.access_token);
+    if (!payload || !payload.exp) return true;
+    // exp is in seconds, Date.now() in ms – add 30s margin
+    return payload.exp * 1000 <= Date.now() + 30_000;
+  } catch {
+    return true;
+  }
+};
+
 const getHeaders = () => {
   const userStr = localStorage.getItem('dms_user');
   const headers = {
@@ -14,14 +41,27 @@ const getHeaders = () => {
   return headers;
 };
 
-// Error handler utility
+// Force logout & redirect when the token is no longer valid
+const forceLogout = () => {
+  localStorage.removeItem('dms_user');
+  // Redirect only if we are not already on the login page
+  if (window.location.pathname !== '/login') {
+    window.location.href = '/login';
+  }
+};
+
+// Error handler utility – intercepts 401 to auto-logout on expired tokens
 const handleResponse = async (res) => {
   if (!res.ok) {
+    // If the backend tells us we're unauthorized, force a logout
+    if (res.status === 401) {
+      forceLogout();
+    }
     let msg = 'API error';
     try {
       const data = await res.json();
       msg = data.detail || data.error || msg;
-    } catch(e) {}
+    } catch (e) { }
     throw new Error(msg);
   }
   return res.json();
@@ -35,13 +75,13 @@ export const api = {
       body: JSON.stringify({ email, password })
     });
     const data = await handleResponse(res);
-    
+
     // Fetch profile
     const meRes = await fetch(`${API_URL}/auth/me`, {
       headers: { 'Authorization': `Bearer ${data.access_token}` }
     });
     const me = await handleResponse(meRes);
-    
+
     const user = { ...me, access_token: data.access_token };
     localStorage.setItem('dms_user', JSON.stringify(user));
     this.addHistory(`Logged in as ${email}`);
@@ -71,21 +111,21 @@ export const api = {
   async getDirectoryContents(folderId = null) {
     const query = folderId ? `?parent_id=${folderId}` : '';
     const dQuery = folderId ? `?folder_id=${folderId}` : '';
-    
+
     const [folders, documents] = await Promise.all([
       fetch(`${API_URL}/folders${query}`, { headers: getHeaders() }).then(handleResponse),
       fetch(`${API_URL}/documents${dQuery}`, { headers: getHeaders() }).then(handleResponse)
     ]);
-    
+
     return { folders, documents };
   },
 
   async getSharedWithMe() {
     const permissions = await fetch(`${API_URL}/permissions`, { headers: getHeaders() }).then(handleResponse);
-    
+
     const folders = [];
     const documents = [];
-    
+
     for (const p of permissions) {
       if (p.folder_id) {
         try {
@@ -150,14 +190,14 @@ export const api = {
       headers: getHeaders()
     });
     await handleResponse(confirmRes);
-    
+
     this.addHistory(`Uploaded document "${file.name}"`);
     return documentId;
   },
 
   async uploadFolder(files, rootFolderId = null) {
     const folderMap = {}; // Maps folder paths to folder IDs
-    
+
     for (const file of files) {
       try {
         // Get the folder path from the file
@@ -167,19 +207,19 @@ export const api = {
           await this.uploadDocument(file, rootFolderId);
           continue;
         }
-        
+
         const pathParts = webkitPath.split('/');
         const fileName = pathParts[pathParts.length - 1]; // Just the filename
-        
+
         // Build folder structure
         let currentFolderId = rootFolderId;
         const folderPath = pathParts.slice(0, -1).join('/');
-        
+
         if (folderPath && !folderMap[folderPath]) {
           // Create folder structure if it doesn't exist
           for (let i = 0; i < pathParts.length - 1; i++) {
             const partialPath = pathParts.slice(0, i + 1).join('/');
-            
+
             if (!folderMap[partialPath]) {
               const folderName = pathParts[i];
               try {
@@ -205,7 +245,7 @@ export const api = {
         } else if (folderPath) {
           currentFolderId = folderMap[folderPath];
         }
-        
+
         // Upload file to the correct folder with correct name
         if (file.size > 0) { // Skip empty files
           await this.uploadDocument(file, currentFolderId);
@@ -215,17 +255,17 @@ export const api = {
         throw new Error(`Failed to upload: ${err.message}`);
       }
     }
-    
+
     this.addHistory(`Uploaded folder with ${files.length} files`);
   },
 
   async downloadDocument(documentId, filename) {
     const res = await fetch(`${API_URL}/documents/${documentId}/download`, { headers: getHeaders() });
     if (!res.ok) {
-        const errorText = await res.text();
-        throw new Error(`Download failed: ${res.status} ${errorText}`);
+      const errorText = await res.text();
+      throw new Error(`Download failed: ${res.status} ${errorText}`);
     }
-    
+
     // Create a temporary link to trigger download securely
     const blob = await res.blob();
     const url = window.URL.createObjectURL(blob);
@@ -236,7 +276,7 @@ export const api = {
     a.click();
     document.body.removeChild(a);
     window.URL.revokeObjectURL(url);
-    
+
     this.addHistory(`Downloaded document "${filename}"`);
   },
 
@@ -279,7 +319,7 @@ export const api = {
       folder_id: type === 'folder' ? id : null,
       document_id: type === 'document' ? id : null
     };
-    
+
     const res = await fetch(`${API_URL}/permissions/share`, {
       method: 'POST',
       headers: getHeaders(),
@@ -291,8 +331,8 @@ export const api = {
 
   async getItemPermissions(id, type) {
     const query = `?${type === 'folder' ? 'folder_id' : 'document_id'}=${id}`;
-    const res = await fetch(`${API_URL}/permissions/resource/dummy${query}`, { 
-      headers: getHeaders() 
+    const res = await fetch(`${API_URL}/permissions/resource/dummy${query}`, {
+      headers: getHeaders()
     });
     return await handleResponse(res);
   },
@@ -317,6 +357,41 @@ export const api = {
 
   async getHistory() {
     const res = await fetch(`${API_URL}/history`, { headers: getHeaders() });
+    return await handleResponse(res);
+  },
+
+  async getAgentOperations() {
+    const res = await fetch(`${API_URL}/agent/operations?limit=200`, { headers: getHeaders() });
+    return await handleResponse(res);
+  },
+
+  async listProposals() {
+    const res = await fetch(`${API_URL}/agent/proposals`, { headers: getHeaders() });
+    return await handleResponse(res);
+  },
+
+  async acceptProposal(attachmentId) {
+    const res = await fetch(`${API_URL}/agent/proposals/${attachmentId}/accept`, {
+      method: 'POST',
+      headers: getHeaders()
+    });
+    return await handleResponse(res);
+  },
+
+  async moveProposal(attachmentId, folderId) {
+    const res = await fetch(`${API_URL}/agent/proposals/${attachmentId}/move`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ folder_id: folderId })
+    });
+    return await handleResponse(res);
+  },
+
+  async rejectProposal(attachmentId) {
+    const res = await fetch(`${API_URL}/agent/proposals/${attachmentId}/reject`, {
+      method: 'POST',
+      headers: getHeaders()
+    });
     return await handleResponse(res);
   },
 
@@ -351,6 +426,93 @@ export const api = {
 
   async getDomainAudit() {
     const res = await fetch(`${API_URL}/admin/audit`, { headers: getHeaders() });
+    return await handleResponse(res);
+  },
+
+  // Email Accounts
+  async listEmailAccounts() {
+    const res = await fetch(`${API_URL}/email-accounts`, { headers: getHeaders() });
+    return await handleResponse(res);
+  },
+
+  async createEmailAccount(data) {
+    const res = await fetch(`${API_URL}/email-accounts`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(data)
+    });
+    return await handleResponse(res);
+  },
+
+  async updateEmailAccount(accountId, data) {
+    const res = await fetch(`${API_URL}/email-accounts/${accountId}`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify(data)
+    });
+    return await handleResponse(res);
+  },
+
+  async deleteEmailAccount(accountId) {
+    const res = await fetch(`${API_URL}/email-accounts/${accountId}`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    });
+    if (res.status !== 204) await handleResponse(res);
+  },
+
+  async testEmailAccount(accountId) {
+    const res = await fetch(`${API_URL}/email-accounts/${accountId}/test`, {
+      method: 'POST',
+      headers: getHeaders()
+    });
+    return await handleResponse(res);
+  },
+
+  // Branding
+  async getMyBranding() {
+    const res = await fetch(`${API_URL}/branding/me`, { headers: getHeaders() });
+    return await handleResponse(res);
+  },
+
+  brandingLogoUrl() {
+    return `${API_URL}/branding/me/logo`;
+  },
+
+  async fetchBrandingLogoBlob() {
+    const res = await fetch(`${API_URL}/branding/me/logo`, { headers: getHeaders() });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error('Failed to fetch logo');
+    return await res.blob();
+  },
+
+  async updateBranding({ brand_name, primary_color }) {
+    const res = await fetch(`${API_URL}/admin/branding`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify({ brand_name, primary_color })
+    });
+    return await handleResponse(res);
+  },
+
+  async uploadBrandingLogo(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    const headers = getHeaders();
+    delete headers['Content-Type'];
+    const res = await fetch(`${API_URL}/admin/branding/logo`, {
+      method: 'POST',
+      headers,
+      body: formData
+    });
+    return await handleResponse(res);
+  },
+
+  async deleteBrandingLogo() {
+    const res = await fetch(`${API_URL}/admin/branding/logo`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    });
     return await handleResponse(res);
   }
 };

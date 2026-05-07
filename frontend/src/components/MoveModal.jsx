@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { X, Folder } from 'lucide-react';
+import { useUI } from '../context/UIContext';
 import './Modal.css';
 
 export default function MoveModal({ itemId, type, isShared, onClose }) {
@@ -8,6 +9,7 @@ export default function MoveModal({ itemId, type, isShared, onClose }) {
   const [currentFolderId, setCurrentFolderId] = useState(null);
   const [breadcrumb, setBreadcrumb] = useState([{ id: null, name: 'My Drive' }]);
   const [loading, setLoading] = useState(true);
+  const { setLoading: setGlobalLoading, addToast } = useUI();
 
   useEffect(() => {
     const fetchFolders = async () => {
@@ -21,15 +23,19 @@ export default function MoveModal({ itemId, type, isShared, onClose }) {
   }, [currentFolderId, itemId]);
 
   const handleMove = async () => {
+    setGlobalLoading(true, isShared ? "Copia in corso..." : "Spostamento in corso...");
     try {
       if (isShared) {
         await api.copyItem(itemId, type, currentFolderId);
       } else {
         await api.moveItem(itemId, type, currentFolderId);
       }
+      addToast(isShared ? "Elemento copiato" : "Elemento spostato", "success");
       onClose();
     } catch (err) {
-      alert(`Error ${isShared ? 'copying' : 'moving'} item: ` + err.message);
+      addToast(`Errore: ${err.message}`, "error");
+    } finally {
+      setGlobalLoading(false);
     }
   };
 

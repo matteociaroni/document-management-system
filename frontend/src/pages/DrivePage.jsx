@@ -1,14 +1,19 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { LogOut, HardDrive, Users, Clock, ShieldEllipsis } from 'lucide-react';
+import { useBranding } from '../context/BrandingContext';
+import { LogOut, HardDrive, Users, Clock, ShieldEllipsis, Mail, Bot, Inbox } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import FileBrowser from '../components/FileBrowser';
 import HistoryView from '../components/HistoryView';
+import EmailAccountsPage from './EmailAccountsPage';
+import AgentHistoryView from '../components/AgentHistoryView';
+import InboxView from '../components/InboxView';
 import './DrivePage.css';
 
 export default function DrivePage() {
   const { user, logout } = useAuth();
-  const [currentView, setCurrentView] = useState('my-drive'); // my-drive | shared | history
+  const { displayName, logoUrl } = useBranding();
+  const [currentView, setCurrentView] = useState('my-drive'); // my-drive | shared | history | email-accounts
   const navigate = useNavigate();
 
   return (
@@ -16,10 +21,12 @@ export default function DrivePage() {
       {/* Sidebar */}
       <aside className="sidebar">
         <div className="sidebar-header">
-          <div className="brand">DMS Cloud</div>
+          {logoUrl && <img src={logoUrl} alt="" className="brand-logo" />}
+          <div className="brand">{displayName}</div>
         </div>
 
         <nav className="sidebar-nav">
+          <div className="nav-section-title">Drive</div>
           <button
             className={`nav-item ${currentView === 'my-drive' ? 'active' : ''}`}
             onClick={() => setCurrentView('my-drive')}
@@ -42,6 +49,29 @@ export default function DrivePage() {
           >
             <Clock size={20} />
             History
+          </button>
+
+          <div className="nav-section-title">Agentic Integration</div>
+          <button
+            className={`nav-item ${currentView === 'email-accounts' ? 'active' : ''}`}
+            onClick={() => setCurrentView('email-accounts')}
+          >
+            <Mail size={20} />
+            Email Accounts
+          </button>
+          <button
+            className={`nav-item ${currentView === 'agent-history' ? 'active' : ''}`}
+            onClick={() => setCurrentView('agent-history')}
+          >
+            <Bot size={20} />
+            Agent History
+          </button>
+          <button
+            className={`nav-item ${currentView === 'inbox' ? 'active' : ''}`}
+            onClick={() => setCurrentView('inbox')}
+          >
+            <Inbox size={20} />
+            Inbox
           </button>
         </nav>
 
@@ -71,6 +101,9 @@ export default function DrivePage() {
         {currentView === 'my-drive' && <FileBrowser view="my-drive" />}
         {currentView === 'shared' && <FileBrowser view="shared" />}
         {currentView === 'history' && <HistoryView />}
+        {currentView === 'agent-history' && <AgentHistoryView />}
+        {currentView === 'inbox' && <InboxView />}
+        {currentView === 'email-accounts' && <EmailAccountsPage />}
       </main>
     </div>
   );

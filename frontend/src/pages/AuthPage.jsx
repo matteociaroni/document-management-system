@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { Cloud } from 'lucide-react';
+import { useUI } from '../context/UIContext';
+import { Cloud, Eye, EyeOff } from 'lucide-react';
 import './AuthPage.css';
 
 export default function AuthPage() {
@@ -8,21 +9,29 @@ export default function AuthPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   
   const { login, register } = useAuth();
+  const { setLoading, addToast } = useUI();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setLoading(true, 'Autenticazione in corso...');
     try {
       if (isLogin) {
         await login(email, password);
+        addToast('Accesso effettuato con successo!', 'success');
       } else {
         await register(username, email, password);
+        addToast('Account creato con successo!', 'success');
       }
     } catch (err) {
       setError(err.message || 'Authentication failed');
+      addToast(err.message || 'Errore di autenticazione', 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -62,13 +71,23 @@ export default function AuthPage() {
           </div>
           <div className="form-group">
             <label className="form-label">Password</label>
-            <input
-              type="password"
-              className="form-input"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
+            <div className="password-input-wrapper">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                className="form-input password-input"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+              <button
+                type="button"
+                className="password-toggle"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? 'Nascondi password' : 'Mostra password'}
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
           </div>
           
           <button type="submit" className="btn-primary w-full mt-4">

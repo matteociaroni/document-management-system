@@ -194,3 +194,20 @@
   color: var(--text-secondary);
   padding: 3rem;
 }
+
+.folder-icon-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.agent-indicator {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 12px;
+  height: 12px;
+  background-color: #10b981; /* Emerald 500 */
+  border-radius: 50%;
+  border: 2px solid white;
+  box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.2);
+}

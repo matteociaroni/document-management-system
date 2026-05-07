@@ -48,3 +48,8 @@ logs/
 # Node
 node_modules/
 package-lock.json
+
+#TODO
+TODO.md
+
+AGENT_IMPLEMENTATION.md

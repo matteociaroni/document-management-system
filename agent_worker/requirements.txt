@@ -1,0 +1,8 @@
+atomic-agents
+instructor
+openai
+mcp[cli]
+SQLAlchemy==2.0.49
+psycopg[binary]==3.2.13
+pydantic-settings==2.13.1
+boto3==1.28.85
