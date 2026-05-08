@@ -109,15 +109,6 @@ def extract_text_preview(content: bytes, mime_type: str | None, filename: str) -
     """
     if not content:
         return None
-        
-    mt = mime_type or ""
-    
-    # Fast path for plain text files to save network call
-    if mt.startswith("text/"):
-        try:
-            return content.decode("utf-8", errors="replace")[:TEXT_PREVIEW_CHARS]
-        except Exception:
-            pass
 
     # Use Tika for everything else (PDFs, DOCX, XLSX, images, etc.)
     return extract_text_with_tika(content)
@@ -157,7 +148,8 @@ def _extract_attachments(msg: email.message.Message) -> list[ParsedAttachment]:
         
         # We reuse the unified `extract_text_preview`
         text_preview = extract_text_preview(payload, mime_type, filename)
-
+        logger.info("Extracted attachment: %s (%s, %d bytes)", filename, mime_type, len(payload))
+    
         results.append(
             ParsedAttachment(
                 filename=filename,
