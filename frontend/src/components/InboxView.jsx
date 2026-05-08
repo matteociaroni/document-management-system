@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { useUI } from '../context/UIContext';
-import { Inbox, Mail, Folder, FolderTree, Check, X, MoveRight, FileText } from 'lucide-react';
+import { Inbox, Mail, Folder, FolderTree, Check, X, MoveRight, FileText, Trash2 } from 'lucide-react';
 import './InboxView.css';
 
 function FolderPickerModal({ onClose, onPick }) {
@@ -134,6 +134,20 @@ export default function InboxView() {
     }
   };
 
+  const handleDelete = async (p) => {
+    if (!window.confirm(`Sei sicuro di voler eliminare '${p.filename}'?`)) return;
+    setGlobalLoading(true, 'Eliminazione in corso...');
+    try {
+      await api.deleteProposal(p.id);
+      addToast(`'${p.filename}' eliminato`, 'success');
+      removeFromList(p.id);
+    } catch (err) {
+      addToast(`Errore: ${err.message}`, 'error');
+    } finally {
+      setGlobalLoading(false);
+    }
+  };
+
   const formatConfidence = (c) => (c == null ? null : `${Math.round(c * 100)}%`);
 
   const pickerProposal = proposals.find((p) => p.id === pickerForId);
@@ -212,6 +226,14 @@ export default function InboxView() {
                     onClick={() => setPickerForId(p.id)}
                   >
                     <MoveRight size={16} /> Sposta in altra cartella
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-danger inbox-btn"
+                    style={{ marginLeft: 'auto' }}
+                    onClick={() => handleDelete(p)}
+                  >
+                    <Trash2 size={16} /> Elimina
                   </button>
                 </div>
               </div>

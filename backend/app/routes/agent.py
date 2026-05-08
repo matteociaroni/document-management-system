@@ -258,3 +258,32 @@ def reject_proposal(
     db.commit()
     db.refresh(agent_file)
     return _build_proposal_response(db, agent_file)
+
+
+@router.delete("/proposals/{proposal_id}", status_code=204)
+def delete_proposal(
+    proposal_id: UUID,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete a proposal and its associated document entirely."""
+    agent_file = _get_user_agent_file(db, proposal_id, user, expected_status="in_inbox")
+
+    op = AgentOperation(
+        user_id=user.id,
+        job_id=agent_file.job_id,
+        agent_file_id=None,
+        operation_type="sent_to_inbox",
+        description=f"User deleted file '{agent_file.filename}' from inbox",
+    )
+    db.add(op)
+
+    db.query(AgentOperation).filter(AgentOperation.agent_file_id == agent_file.id).update({"agent_file_id": None})
+
+    if agent_file.document_id:
+        doc = db.query(Document).filter(Document.id == agent_file.document_id).first()
+        if doc:
+            db.delete(doc)
+
+    db.delete(agent_file)
+    db.commit()

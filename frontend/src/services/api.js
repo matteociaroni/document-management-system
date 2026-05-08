@@ -413,6 +413,14 @@ export const api = {
     return await handleResponse(res);
   },
 
+  async deleteProposal(proposalId) {
+    const res = await fetch(`${API_URL}/agent/proposals/${proposalId}`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    });
+    if (res.status !== 204) await handleResponse(res);
+  },
+
   // Admin capabilities
   async getDomainUsers() {
     const res = await fetch(`${API_URL}/admin/users`, { headers: getHeaders() });
