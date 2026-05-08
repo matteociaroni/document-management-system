@@ -73,6 +73,16 @@
   gap: 1rem;
 }
 
+.btn-ai {
+  background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
+  border-color: transparent;
+  color: white;
+}
+
+.btn-ai:hover {
+  filter: brightness(1.05);
+}
+
 .items-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));

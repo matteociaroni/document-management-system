@@ -1,10 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Form, File, UploadFile
+import hashlib
+from fastapi import APIRouter, Depends, HTTPException, Query, Form, File, UploadFile, status as http_status
 from sqlalchemy.orm import Session
 from uuid import UUID
 from typing import Optional
 from app.database import get_db
-from app.models import User, Document, Folder, EmailAttachment
-from app.schemas import DocumentUploadRequest, DocumentUploadResponse, DocumentConfirmRequest, DocumentResponse, DownloadUrlResponse, MoveRequest
+from app.models import User, Document, Folder, EmailAttachment, AgentOperation
+from app.schemas import (
+    DocumentUploadRequest,
+    DocumentUploadResponse,
+    DocumentConfirmRequest,
+    DocumentResponse,
+    DownloadUrlResponse,
+    MoveRequest,
+    AIUploadResponse,
+)
 from app.auth import get_current_user
 from app.storage import generate_upload_url, generate_download_url, get_s3_client, get_bucket_name
 from app.permissions_helper import has_permission, has_write_permission
@@ -98,6 +107,87 @@ async def upload_document(
     return DocumentUploadResponse(document_id=doc.id, upload_url=upload_url)
 
 
+@router.post("/upload-ai", response_model=AIUploadResponse, status_code=http_status.HTTP_202_ACCEPTED)
+async def upload_document_with_ai(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Upload a document and let the agent decide where to file it.
+
+    The classification is asynchronous: the agent worker polls EmailAttachment
+    records with source='manual_upload' and status='pending', applies the same
+    confidence threshold used for email attachments, and either auto-files
+    the document into the suggested folder or sends it to the user's inbox
+    for manual review.
+    """
+    import os
+    filename = os.path.basename(file.filename) if file.filename else "file"
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty file")
+
+    mime_type = file.content_type or "application/octet-stream"
+    size_bytes = len(content)
+    content_hash = hashlib.sha256(content).hexdigest()
+
+    doc = Document(
+        name=filename,
+        mime_type=mime_type,
+        size_bytes=size_bytes,
+        folder_id=None,
+        owner_id=user.id,
+    )
+    db.add(doc)
+    db.flush()
+
+    try:
+        s3 = get_s3_client()
+        bucket = get_bucket_name(user.email)
+        try:
+            s3.head_bucket(Bucket=bucket)
+        except Exception as e:
+            if "404" in str(e) or "NoSuchBucket" in str(e) or "Not Found" in str(e):
+                s3.create_bucket(Bucket=bucket)
+            else:
+                raise
+        s3.put_object(Bucket=bucket, Key=str(doc.id), Body=content, ContentType=mime_type)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Upload to storage failed: {e}")
+
+    attachment = EmailAttachment(
+        job_id=None,
+        source="manual_upload",
+        filename=filename,
+        mime_type=mime_type,
+        size_bytes=size_bytes,
+        content_hash=content_hash,
+        document_id=doc.id,
+        status="pending",
+    )
+    db.add(attachment)
+    db.flush()
+
+    op = AgentOperation(
+        user_id=user.id,
+        job_id=None,
+        attachment_id=attachment.id,
+        operation_type="manual_upload_received",
+        description=f"Upload AI ricevuto: '{filename}' — in attesa di classificazione",
+        details={"mime_type": mime_type, "size_bytes": size_bytes},
+    )
+    db.add(op)
+    db.commit()
+    db.refresh(attachment)
+
+    return AIUploadResponse(
+        document_id=doc.id,
+        attachment_id=attachment.id,
+        status=attachment.status,
+    )
+
+
 @router.post("/{document_id}/confirm", response_model=DocumentResponse)
 def confirm_document_upload(
     document_id: UUID,
@@ -170,12 +260,14 @@ def list_documents(
         query = db.query(Document).filter(Document.folder_id == None)
         query = query.filter(Document.owner_id == user.id)
 
-    # Hide documents that are still sitting in the agent inbox awaiting user review
-    inbox_doc_ids = db.query(EmailAttachment.document_id).filter(
-        EmailAttachment.status == "in_inbox",
+    # Hide documents either awaiting user review (in_inbox) or still being
+    # classified by the agent (pending). Both states represent files that
+    # should not appear loose at the root of the user's drive.
+    hidden_doc_ids = db.query(EmailAttachment.document_id).filter(
+        EmailAttachment.status.in_(("in_inbox", "pending")),
         EmailAttachment.document_id.isnot(None),
     )
-    query = query.filter(~Document.id.in_(inbox_doc_ids))
+    query = query.filter(~Document.id.in_(hidden_doc_ids))
 
     return query.limit(limit).offset(offset).all()
 

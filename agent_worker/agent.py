@@ -56,11 +56,25 @@ class AttachmentDecision(BaseModel):
 
 
 class FilingInput(BaseIOSchema):
-    """Input for the document filing agent."""
-    email_subject: str = Field(..., description="Subject line of the email")
-    email_sender: str = Field(..., description="Sender address")
-    email_body: str | None = Field(None, description="Plain-text body of the email (truncated to ~2000 chars)")
-    attachments: list[AttachmentInfo] = Field(..., description="List of attachments to classify")
+    """Input for the document filing agent.
+
+    The 'context_*' fields describe where the files come from. For email-derived
+    flows they carry subject/sender/body; for direct user uploads they may
+    contain just the filename and a placeholder source.
+    """
+    context_title: str = Field(
+        ...,
+        description="Short title describing the documents (email subject, or filename for manual uploads)",
+    )
+    context_source: str = Field(
+        ...,
+        description="Origin of the documents (sender address, or '(manual upload)' for user-driven uploads)",
+    )
+    context_description: str | None = Field(
+        None,
+        description="Optional extended description (email body text, truncated to ~2000 chars). May be null when no narrative is available.",
+    )
+    attachments: list[AttachmentInfo] = Field(..., description="List of files to classify")
 
 
 class FilingOutput(BaseIOSchema):
@@ -95,20 +109,28 @@ def _build_instructor_client() -> instructor.Instructor:
 
 def run_filing_agent(
     user_id: str,
-    email_subject: str,
-    email_sender: str,
+    context_title: str,
+    context_source: str,
     attachments: list[dict],
-    email_body: str | None = None,
+    context_description: str | None = None,
 ) -> FilingOutput:
     """
-    Classify email attachments into DMS folders using Atomic Agents.
+    Classify a batch of files into DMS folders using Atomic Agents.
+
+    The same agent powers two flows: inbound email attachments and direct
+    user uploads. The caller adapts whatever metadata is available to the
+    generic ``context_*`` fields.
 
     Args:
-        user_id: UUID of the user who owns the email account.
-        email_subject: Subject line of the email.
-        email_sender: Sender address.
-        attachments: List of dicts with keys: filename, mime_type, size_bytes, text_preview.
-        email_body: Optional plain-text body of the email (truncated).
+        user_id: UUID of the user who owns the target folder tree.
+        context_title: Short title for the batch (email subject, or filename
+            for manual uploads).
+        context_source: Origin of the files (sender address, or
+            '(manual upload)' for user-driven uploads).
+        attachments: List of dicts with keys: filename, mime_type, size_bytes,
+            text_preview.
+        context_description: Optional extended description (email body, etc.),
+            truncated to ~2000 chars by the caller. May be None.
 
     Returns:
         FilingOutput with one AttachmentDecision per attachment.
@@ -122,21 +144,27 @@ def run_filing_agent(
     system_prompt = SystemPromptGenerator(
         background=[
             "You are an expert document archivist for a Document Management System (DMS).",
-            "Your task is to classify email attachments and assign each one to the most appropriate folder.",
+            "Your task is to classify a batch of files and assign each one to the most appropriate folder.",
+            "Files may arrive from different sources: an inbound email (with subject, sender, and body), "
+            "or a direct upload by the user (with only a filename as context).",
             "The available folder structure is provided in the context below.",
         ],
         steps=[
-            "Read the email subject, sender, and body text to understand the document category and context.",
-            "Pay special attention to the email body: it often describes what the attachments are about "
-            "(e.g. 'please find the invoice attached', 'here is the project report').",
-            "For each attachment, analyze its filename, MIME type, size, and any text preview.",
-            "Combine email context (subject + body) with attachment metadata to match each attachment "
-            "to the most semantically appropriate folder from the tree.",
+            "Read the context_title, context_source, and context_description to understand the document "
+            "category and the situation in which the files were submitted.",
+            "When a context_description is present (typically an email body), it usually states what the "
+            "files are about (e.g. 'please find the invoice attached'); rely on it heavily.",
+            "When the context is minimal (e.g. a manual upload with no description), give more weight to "
+            "the filename and to the text_preview extracted from the file.",
+            "For each file, analyze its filename, MIME type, size, and any text preview.",
+            "Combine the available context with the file metadata to match each file to the most "
+            "semantically appropriate folder from the tree.",
             "If no folder is a good match, set folder_id to null.",
-            "Set confidence to 1.0 only if you are certain. Use lower values for ambiguous cases.",
+            "Set confidence to 1.0 only if you are certain. Use lower values for ambiguous cases — "
+            "in particular, lower the confidence when only a filename is available and it is generic.",
         ],
         output_instructions=[
-            "Return exactly one decision per attachment in the 'decisions' list.",
+            "Return exactly one decision per file in the 'decisions' list.",
             "Use the exact filename as provided — do not modify it.",
             "folder_id must be a valid UUID string copied from the folder tree, or null.",
             "confidence must be a float between 0.0 and 1.0.",
@@ -155,9 +183,9 @@ def run_filing_agent(
     # 3. Run the agent
     result: FilingOutput = agent.run(
         FilingInput(
-            email_subject=email_subject,
-            email_sender=email_sender,
-            email_body=email_body,
+            context_title=context_title,
+            context_source=context_source,
+            context_description=context_description,
             attachments=[
                 AttachmentInfo(
                     filename=a["filename"],

@@ -98,8 +98,8 @@ export default function DrivePage() {
 
       {/* Main Content Area */}
       <main className="main-content">
-        {currentView === 'my-drive' && <FileBrowser view="my-drive" />}
-        {currentView === 'shared' && <FileBrowser view="shared" />}
+        {currentView === 'my-drive' && <FileBrowser view="my-drive" onNavigate={setCurrentView} />}
+        {currentView === 'shared' && <FileBrowser view="shared" onNavigate={setCurrentView} />}
         {currentView === 'history' && <HistoryView />}
         {currentView === 'agent-history' && <AgentHistoryView />}
         {currentView === 'inbox' && <InboxView />}

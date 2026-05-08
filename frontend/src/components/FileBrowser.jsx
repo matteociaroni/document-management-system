@@ -1,13 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { useUI } from '../context/UIContext';
 import { api } from '../services/api';
-import { Folder, File as FileIcon, MoreVertical, Download, Trash, Share2, Move, FolderPlus, Upload } from 'lucide-react';
+import { Folder, File as FileIcon, MoreVertical, Download, Trash, Share2, Move, FolderPlus, Upload, Sparkles } from 'lucide-react';
 import ShareModal from './ShareModal';
 import MoveModal from './MoveModal';
 import { ConfirmDialog, PromptDialog } from './Dialog';
 import './FileBrowser.css';
 
-export default function FileBrowser({ view }) {
+export default function FileBrowser({ view, onNavigate }) {
   const [items, setItems] = useState({ folders: [], documents: [] });
   const [loading, setLoading] = useState(true);
   const [currentFolderId, setCurrentFolderId] = useState(null);
@@ -108,6 +108,31 @@ export default function FileBrowser({ view }) {
           fetchItems();
         } catch (err) {
           addToast(`Errore durante il caricamento: ${err.message}`, "error");
+        } finally {
+          setGlobalLoading(false);
+        }
+      }
+    };
+    input.click();
+  };
+
+  const handleUploadWithAIClick = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.onchange = async (e) => {
+      if (e.target.files && e.target.files[0]) {
+        const file = e.target.files[0];
+        setGlobalLoading(true, "Upload con AI in corso...");
+        try {
+          await api.uploadDocumentWithAI(file);
+          addToast(
+            `'${file.name}' caricato. L'AI lo sta classificando: comparirà in Inbox o nella cartella scelta entro qualche istante.`,
+            "success"
+          );
+          fetchItems();
+          if (onNavigate) onNavigate('inbox');
+        } catch (err) {
+          addToast(`Errore upload AI: ${err.message}`, "error");
         } finally {
           setGlobalLoading(false);
         }
@@ -300,6 +325,13 @@ export default function FileBrowser({ view }) {
               </button>
               <button className="btn-primary" onClick={handleUploadFolderClick}>
                 <Upload size={16} /> Upload Folder
+              </button>
+              <button
+                className="btn-primary btn-ai"
+                onClick={handleUploadWithAIClick}
+                title="L'agente AI classifica e archivia il file nella cartella più appropriata"
+              >
+                <Sparkles size={16} /> Upload File with AI
               </button>
             </>
           )}

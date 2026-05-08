@@ -1,13 +1,16 @@
 """
 Agent Worker — main loop.
 
-Polls the DB every POLL_INTERVAL seconds for pending EmailJob records.
-For each job:
-  1. Downloads the .eml from SeaweedFS.
-  2. Extracts attachments and uploads them as Document records.
-  3. Runs the Atomic Agents filing agent to decide where each attachment belongs.
-  4. Writes the decisions back to EmailAttachment records.
-  5. Marks the job as done (or failed on error).
+Polls the DB every POLL_INTERVAL seconds and processes two distinct queues:
+
+  1. EmailJob records with status='pending' — produced by the email_poller.
+     For each job: download the .eml, extract attachments, file them.
+
+  2. EmailAttachment records with source='manual_upload' and status='pending' —
+     produced by the backend's POST /documents/upload-ai endpoint.
+     For each attachment: download the document from S3, classify it through
+     the same filing agent and apply the same confidence threshold (auto_filed
+     vs in_inbox), so the user-facing semantics are uniform.
 """
 
 import hashlib
@@ -21,9 +24,9 @@ from sqlalchemy.orm import Session
 from config import settings
 from agent import run_filing_agent
 from database import SessionLocal
-from eml_parser import parse_email
+from eml_parser import extract_text_preview, parse_email
 from models import AgentOperation, Document, EmailAccount, EmailAttachment, EmailJob, User
-from storage import ensure_bucket, get_bucket_name, get_s3_client, load_eml, EML_BUCKET
+from storage import ensure_bucket, get_bucket_name, get_s3_client, load_document, load_eml, EML_BUCKET
 
 logging.basicConfig(
     level=logging.INFO,
@@ -45,7 +48,7 @@ def _get_pending_jobs(db: Session) -> list[EmailJob]:
 def _log_op(
     db: Session,
     user_id: UUID,
-    job_id: UUID,
+    job_id: UUID | None,
     attachment_id: UUID | None,
     op_type: str,
     description: str,
@@ -79,7 +82,6 @@ def _process_job(db: Session, job: EmailJob) -> None:
 
     raw_bytes = load_eml(job.eml_storage_key)
     parsed = parse_email(raw_bytes)
-    email_body = parsed.body_text
     parsed_attachments = parsed.attachments
 
     if not parsed_attachments:
@@ -150,9 +152,9 @@ def _process_job(db: Session, job: EmailJob) -> None:
 
     result = run_filing_agent(
         user_id=str(user.id),
-        email_subject=job.subject or "(no subject)",
-        email_sender=job.sender or "(unknown sender)",
-        email_body=email_body,
+        context_title=job.subject or "(no subject)",
+        context_source=job.sender or "(unknown sender)",
+        context_description=parsed.body_text,
         attachments=attachment_dicts,
     )
 
@@ -239,6 +241,157 @@ def _process_job_safe(db: Session, job: EmailJob) -> None:
             db.rollback()
 
 
+def _get_pending_manual_uploads(db: Session) -> list[EmailAttachment]:
+    return (
+        db.query(EmailAttachment)
+        .filter(
+            EmailAttachment.source == "manual_upload",
+            EmailAttachment.status == "pending",
+        )
+        .order_by(EmailAttachment.created_at.asc())
+        .limit(10)
+        .all()
+    )
+
+
+def _process_manual_upload(db: Session, attachment: EmailAttachment) -> None:
+    """Classify a user-uploaded document through the filing agent.
+
+    The flow mirrors _process_job but starts from an already-stored Document:
+    no .eml to parse, no email metadata. The filing agent is invoked with
+    a synthetic 'email' context so the existing prompt continues to work."""
+    logger.info("Processing manual upload %s ('%s')", attachment.id, attachment.filename)
+
+    doc: Document = (
+        db.query(Document).filter(Document.id == attachment.document_id).first()
+    )
+    if not doc:
+        raise ValueError(f"Attachment {attachment.id} has no associated document")
+
+    user: User = db.query(User).filter(User.id == doc.owner_id).first()
+    if not user:
+        raise ValueError(f"Document {doc.id} owner not found")
+
+    # Pull bytes from the tenant bucket and extract a text preview using the
+    # same logic that powers the email pipeline.
+    bucket = get_bucket_name(user.email)
+    content = load_document(bucket, str(doc.id))
+    text_preview = extract_text_preview(content, attachment.mime_type, attachment.filename)
+
+    result = run_filing_agent(
+        user_id=str(user.id),
+        context_title=attachment.filename,
+        context_source="(manual upload)",
+        context_description=None,
+        attachments=[{
+            "filename": attachment.filename,
+            "mime_type": attachment.mime_type or "application/octet-stream",
+            "size_bytes": attachment.size_bytes or len(content),
+            "text_preview": text_preview,
+        }],
+    )
+
+    decision = next(
+        (d for d in result.decisions if d.filename == attachment.filename),
+        None,
+    )
+
+    if not decision:
+        attachment.status = "in_inbox"
+        _log_op(
+            db,
+            user_id=user.id,
+            job_id=None,
+            attachment_id=attachment.id,
+            op_type="sent_to_inbox",
+            description=f"'{attachment.filename}' inviato in inbox (nessuna decisione dall'agente)",
+        )
+        db.commit()
+        return
+
+    folder_uuid = None
+    if decision.folder_id:
+        try:
+            folder_uuid = UUID(decision.folder_id)
+        except ValueError:
+            logger.warning("Invalid folder_id from agent: %s", decision.folder_id)
+
+    attachment.suggested_folder_id = folder_uuid
+    attachment.confidence = decision.confidence
+    attachment.agent_reasoning = decision.reasoning
+
+    if folder_uuid and decision.confidence >= settings.auto_file_threshold:
+        attachment.status = "auto_filed"
+        attachment.auto_filed = True
+        doc.folder_id = folder_uuid
+        _log_op(
+            db,
+            user_id=user.id,
+            job_id=None,
+            attachment_id=attachment.id,
+            op_type="auto_filed",
+            description=(
+                f"Archiviato automaticamente '{attachment.filename}' "
+                f"(confidence: {decision.confidence:.0%})"
+            ),
+            details={"folder_id": str(folder_uuid), "confidence": decision.confidence},
+        )
+    else:
+        attachment.status = "in_inbox"
+        _log_op(
+            db,
+            user_id=user.id,
+            job_id=None,
+            attachment_id=attachment.id,
+            op_type="sent_to_inbox",
+            description=(
+                f"'{attachment.filename}' inviato in inbox per revisione "
+                f"(confidence: {decision.confidence:.0%})"
+            ),
+            details={
+                "folder_id": str(folder_uuid) if folder_uuid else None,
+                "confidence": decision.confidence,
+            },
+        )
+
+    db.commit()
+
+
+def _process_manual_upload_safe(db: Session, attachment: EmailAttachment) -> None:
+    """Wrap _process_manual_upload so a failure on one item never stops the loop."""
+    try:
+        _process_manual_upload(db, attachment)
+    except Exception as e:
+        db.rollback()
+        logger.error("Manual upload %s failed: %s", attachment.id, e, exc_info=True)
+        try:
+            # Refresh the attachment after rollback before mutating it.
+            attachment = (
+                db.query(EmailAttachment)
+                .filter(EmailAttachment.id == attachment.id)
+                .first()
+            )
+            if attachment is not None:
+                attachment.status = "in_inbox"
+                attachment.agent_reasoning = (
+                    "Classificazione fallita: l'agente non ha potuto processare il file. "
+                    "Sposta manualmente il documento nella cartella desiderata."
+                )
+                db.add(AgentOperation(
+                    user_id=db.query(Document.owner_id)
+                              .filter(Document.id == attachment.document_id)
+                              .scalar(),
+                    job_id=None,
+                    attachment_id=attachment.id,
+                    operation_type="error",
+                    description=f"Classificazione fallita per '{attachment.filename}': {e}",
+                    details={"error": str(e)},
+                ))
+                db.commit()
+        except Exception:
+            db.rollback()
+
+
 def run_worker() -> None:
     logger.info(
         "Agent worker started. Poll interval: %ds, auto-file threshold: %.0f%%",
@@ -256,9 +409,15 @@ def run_worker() -> None:
         try:
             jobs = _get_pending_jobs(db)
             if jobs:
-                logger.info("Found %d pending job(s)", len(jobs))
+                logger.info("Found %d pending email job(s)", len(jobs))
             for job in jobs:
                 _process_job_safe(db, job)
+
+            manual_uploads = _get_pending_manual_uploads(db)
+            if manual_uploads:
+                logger.info("Found %d pending manual upload(s)", len(manual_uploads))
+            for attachment in manual_uploads:
+                _process_manual_upload_safe(db, attachment)
         except Exception as e:
             logger.error("Unexpected error in poll cycle: %s", e, exc_info=True)
         finally:

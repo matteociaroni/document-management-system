@@ -26,6 +26,13 @@ def load_eml(storage_key: str) -> bytes:
     return obj["Body"].read()
 
 
+def load_document(bucket: str, document_id: str) -> bytes:
+    """Download a document's bytes from the user's tenant bucket."""
+    s3 = get_s3_client()
+    obj = s3.get_object(Bucket=bucket, Key=document_id)
+    return obj["Body"].read()
+
+
 def ensure_bucket(s3, bucket: str) -> None:
     try:
         s3.head_bucket(Bucket=bucket)

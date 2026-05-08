@@ -195,6 +195,24 @@ export const api = {
     return documentId;
   },
 
+  async uploadDocumentWithAI(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const headers = getHeaders();
+    delete headers['Content-Type']; // browser sets the multipart boundary
+
+    const res = await fetch(`${API_URL}/documents/upload-ai`, {
+      method: 'POST',
+      headers,
+      body: formData
+    });
+    const data = await handleResponse(res);
+
+    this.addHistory(`Uploaded "${file.name}" with AI filing`);
+    return data; // { document_id, attachment_id, status }
+  },
+
   async uploadFolder(files, rootFolderId = null) {
     const folderMap = {}; // Maps folder paths to folder IDs
 

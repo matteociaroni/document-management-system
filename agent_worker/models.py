@@ -98,7 +98,8 @@ class EmailAttachment(Base):
     __tablename__ = "email_attachments"
 
     id = Column(PG_UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
-    job_id = Column(PG_UUID(as_uuid=True), ForeignKey("email_jobs.id", ondelete="CASCADE"), nullable=False)
+    job_id = Column(PG_UUID(as_uuid=True), ForeignKey("email_jobs.id", ondelete="CASCADE"), nullable=True)
+    source = Column(String(20), nullable=False, default="email")
     filename = Column(String(255), nullable=False)
     mime_type = Column(String(100), nullable=True)
     size_bytes = Column(BigInteger, nullable=True)
@@ -116,6 +117,7 @@ class EmailAttachment(Base):
     __table_args__ = (
         Index("idx_email_attachments_job_id", job_id),
         Index("idx_email_attachments_status", status),
+        Index("idx_email_attachments_source_status", source, status),
     )
 
 
@@ -133,7 +135,7 @@ class AgentOperation(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "operation_type IN ('email_received', 'attachment_extracted', 'auto_filed', 'sent_to_inbox', 'duplicate_skipped', 'error')",
+            "operation_type IN ('email_received', 'attachment_extracted', 'auto_filed', 'sent_to_inbox', 'duplicate_skipped', 'manual_upload_received', 'error')",
             name="chk_operation_type",
         ),
         Index("idx_agent_operations_user_id", user_id),

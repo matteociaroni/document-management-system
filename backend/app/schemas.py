@@ -58,6 +58,14 @@ class DocumentUploadResponse(BaseModel):
     upload_url: str
 
 
+class AIUploadResponse(BaseModel):
+    """Returned by /documents/upload-ai. The classification is asynchronous:
+    the agent worker will pick up the attachment and decide auto_file vs in_inbox."""
+    document_id: UUID
+    attachment_id: UUID
+    status: str  # always 'pending' on creation
+
+
 class DocumentConfirmRequest(BaseModel):
     document_id: UUID
     size_bytes: int
@@ -210,6 +218,7 @@ class ProposalResponse(BaseORMModel):
     document_id: Optional[UUID]
     status: str
     created_at: datetime
+    source: str = "email"  # 'email' | 'manual_upload'
     # Populated via join
     suggested_folder_name: Optional[str] = None
     sender: Optional[str] = None

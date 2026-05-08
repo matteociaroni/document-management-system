@@ -169,7 +169,8 @@ CREATE INDEX idx_email_jobs_account_id ON email_jobs (email_account_id);
 -- -----------------------------
 CREATE TABLE email_attachments (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
-    job_id UUID NOT NULL REFERENCES email_jobs (id) ON DELETE CASCADE,
+    job_id UUID REFERENCES email_jobs (id) ON DELETE CASCADE,
+    source VARCHAR(20) NOT NULL DEFAULT 'email',
     filename VARCHAR(255) NOT NULL,
     mime_type VARCHAR(100),
     size_bytes BIGINT,
@@ -191,6 +192,13 @@ CREATE TABLE email_attachments (
                 'confirmed',
                 'rejected'
             )
+        ),
+        CONSTRAINT chk_attachment_source CHECK (
+            source IN ('email', 'manual_upload')
+        ),
+        CONSTRAINT chk_email_source_has_job CHECK (
+            (source = 'email' AND job_id IS NOT NULL)
+            OR (source = 'manual_upload' AND job_id IS NULL)
         )
 );
 
@@ -199,6 +207,8 @@ CREATE INDEX idx_email_attachments_job_id ON email_attachments (job_id);
 CREATE INDEX idx_email_attachments_status ON email_attachments (status);
 
 CREATE INDEX idx_email_attachments_content_hash ON email_attachments (content_hash);
+
+CREATE INDEX idx_email_attachments_source_status ON email_attachments (source, status);
 
 -- -----------------------------
 -- AGENT OPERATIONS
@@ -221,6 +231,7 @@ CREATE TABLE agent_operations (
                 'auto_filed',
                 'sent_to_inbox',
                 'duplicate_skipped',
+                'manual_upload_received',
                 'error'
             )
         )

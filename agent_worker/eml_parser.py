@@ -226,6 +226,31 @@ def parse_attachments(raw_bytes: bytes) -> list[ParsedAttachment]:
     return _extract_attachments(msg)
 
 
+def extract_text_preview(content: bytes, mime_type: str | None, filename: str) -> str | None:
+    """
+    Extract a text preview from a standalone file, mirroring the email-attachment
+    pipeline. Used by the manual-upload flow so the same agent prompt works
+    uniformly for both email and user-driven uploads.
+    """
+    if not content:
+        return None
+    lower_name = (filename or "").lower()
+    mt = mime_type or ""
+
+    if mt.startswith("text/"):
+        try:
+            return content.decode("utf-8", errors="replace")[:TEXT_PREVIEW_CHARS]
+        except Exception:
+            return None
+    if mt == "application/pdf" or lower_name.endswith(".pdf"):
+        return _extract_pdf_preview(content)
+    if mt == DOCX_MIME or lower_name.endswith(".docx"):
+        return _extract_docx_preview(content)
+    if mt == XLSX_MIME or lower_name.endswith(".xlsx"):
+        return _extract_xlsx_preview(content)
+    return None
+
+
 def parse_email(raw_bytes: bytes) -> ParsedEmail:
     """
     Parse a raw RFC 822 email and return both the body text and attachments.
