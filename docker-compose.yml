@@ -129,6 +129,15 @@ services:
         condition: service_started
       mcp_server:
         condition: service_started
+      tika:
+        condition: service_started
+
+  tika:
+    image: apache/tika:latest
+    container_name: tika_server
+    ports:
+      - "9998:9998"
+
   # adminer:
   #   image: adminer
   #   container_name: adminer
