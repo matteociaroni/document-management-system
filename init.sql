@@ -181,6 +181,7 @@ CREATE TABLE agent_files (
     document_id UUID REFERENCES documents (id) ON DELETE SET NULL,
     status VARCHAR(20) DEFAULT 'pending',
     auto_filed BOOLEAN DEFAULT FALSE,
+    needs_classification BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMP
     WITH
         TIME ZONE DEFAULT now (),
@@ -190,7 +191,8 @@ CREATE TABLE agent_files (
                 'auto_filed',
                 'in_inbox',
                 'confirmed',
-                'rejected'
+                'rejected',
+                'indexed'
             )
         ),
         CONSTRAINT chk_agent_file_source CHECK (

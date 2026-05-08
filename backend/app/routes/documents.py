@@ -1,5 +1,6 @@
 import hashlib
 from fastapi import APIRouter, Depends, HTTPException, Query, Form, File, UploadFile, status as http_status
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 from uuid import UUID
 from typing import Optional
@@ -165,6 +166,7 @@ async def upload_document_with_ai(
         content_hash=content_hash,
         document_id=doc.id,
         status="pending",
+        needs_classification=True,
     )
     db.add(agent_file)
     db.flush()
@@ -196,20 +198,39 @@ def confirm_document_upload(
 ):
     """Confirm document upload after file has been uploaded to S3"""
     doc = _get_document_or_404(db, document_id, user, check_permission=False)
-    
+
     if doc.owner_id != user.id:
         raise HTTPException(status_code=403, detail="Only owner can confirm upload")
-    
+
     try:
         s3 = get_s3_client()
         bucket = get_bucket_name(user.email)
         obj = s3.head_object(Bucket=bucket, Key=str(doc.id))
         doc.size_bytes = obj['ContentLength']
+
+        existing = (
+            db.query(AgentFile)
+            .filter(AgentFile.document_id == doc.id)
+            .first()
+        )
+        if not existing:
+            db.add(AgentFile(
+                job_id=None,
+                source="manual_upload",
+                filename=doc.name,
+                mime_type=doc.mime_type,
+                size_bytes=doc.size_bytes,
+                content_hash=None,
+                document_id=doc.id,
+                status="pending",
+                needs_classification=False,
+            ))
+
         db.commit()
         db.refresh(doc)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    
+
     return doc
 
 
@@ -261,11 +282,17 @@ def list_documents(
         query = query.filter(Document.owner_id == user.id)
 
     # Hide documents either awaiting user review (in_inbox) or still being
-    # classified by the agent (pending). Both states represent files that
-    # should not appear loose at the root of the user's drive.
+    # classified by the agent (pending + needs_classification). Direct uploads
+    # sit in the queue with needs_classification=False and must remain visible.
     hidden_doc_ids = db.query(AgentFile.document_id).filter(
-        AgentFile.status.in_(("in_inbox", "pending")),
         AgentFile.document_id.isnot(None),
+        or_(
+            AgentFile.status == "in_inbox",
+            and_(
+                AgentFile.status == "pending",
+                AgentFile.needs_classification.is_(True),
+            ),
+        ),
     )
     query = query.filter(~Document.id.in_(hidden_doc_ids))
 

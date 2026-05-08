@@ -110,6 +110,7 @@ class AgentFile(Base):
     document_id = Column(PG_UUID(as_uuid=True), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True)
     status = Column(String(20), default="pending")
     auto_filed = Column(Boolean, default=False)
+    needs_classification = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     job = relationship("EmailJob", back_populates="agent_files")

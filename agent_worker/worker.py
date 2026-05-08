@@ -7,10 +7,17 @@ Polls the DB every POLL_INTERVAL seconds and processes two distinct queues:
      For each job: download the .eml, extract attachments, file them.
 
   2. AgentFile records with source='manual_upload' and status='pending' —
-     produced by the backend's POST /documents/upload-ai endpoint.
-     For each agent_file: download the document from S3, classify it through
-     the same filing agent and apply the same confidence threshold (auto_filed
-     vs in_inbox), so the user-facing semantics are uniform.
+     produced by the backend's POST /documents/upload-ai endpoint or the
+     direct-upload /confirm endpoint.
+
+Pipeline applied to every file (regardless of needs_classification):
+    1. Tika  — extract text from the file bytes.
+    2. OpenSearch — index the extracted text (TODO: stubbed for now).
+    3. LLM (filing agent) — only when needs_classification=True; decides
+       auto_filed vs in_inbox based on the confidence threshold.
+
+Files with needs_classification=False end up in status='indexed' after the
+pipeline runs; they never see the LLM.
 """
 
 import hashlib
@@ -33,6 +40,29 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("agent_worker")
+
+
+def _index_in_opensearch(
+    *,
+    document_id,
+    owner_id,
+    folder_id,
+    filename: str,
+    mime_type: str | None,
+    text: str | None,
+    needs_classification: bool,
+) -> None:
+    """Pipeline step 2: send extracted text to OpenSearch for full-text search.
+
+    TODO: actually implement. Wire up an OpenSearch client and index a
+    document with the fields below. This runs for every AgentFile (both
+    classifiable and direct uploads) so the search index covers everything.
+    """
+    logger.debug(
+        "TODO: index document %s ('%s', %s chars) in OpenSearch "
+        "[needs_classification=%s]",
+        document_id, filename, len(text) if text else 0, needs_classification,
+    )
 
 
 def _get_pending_jobs(db: Session) -> list[EmailJob]:
@@ -121,6 +151,7 @@ def _process_job(db: Session, job: EmailJob) -> None:
             content_hash=content_hash,
             document_id=doc.id,
             status="pending",
+            needs_classification=True,
         )
         db.add(agent_file)
         db.flush()
@@ -138,6 +169,19 @@ def _process_job(db: Session, job: EmailJob) -> None:
 
     db.commit()
     logger.info("Uploaded %d attachment(s) for job %s", len(records), job.id)
+
+    # Pipeline step 2: index every attachment in OpenSearch (TODO no-op).
+    # Tika has already produced att.text_preview during parse_email.
+    for att, agent_file, doc in records:
+        _index_in_opensearch(
+            document_id=doc.id,
+            owner_id=user.id,
+            folder_id=doc.folder_id,
+            filename=att.filename,
+            mime_type=att.mime_type,
+            text=att.text_preview,
+            needs_classification=agent_file.needs_classification,
+        )
 
     # Run CrewAI crew
     attachment_dicts = [
@@ -242,6 +286,11 @@ def _process_job_safe(db: Session, job: EmailJob) -> None:
 
 
 def _get_pending_manual_uploads(db: Session) -> list[AgentFile]:
+    """Pick up every pending manual upload, regardless of needs_classification.
+
+    Both flag-on (Upload-AI) and flag-off (direct upload) files share the
+    Tika+OpenSearch pipeline; only the LLM step is conditional.
+    """
     return (
         db.query(AgentFile)
         .filter(
@@ -255,12 +304,16 @@ def _get_pending_manual_uploads(db: Session) -> list[AgentFile]:
 
 
 def _process_manual_upload(db: Session, agent_file: AgentFile) -> None:
-    """Classify a user-uploaded document through the filing agent.
+    """Run the unified pipeline for a user-uploaded document.
 
-    The flow mirrors _process_job but starts from an already-stored Document:
-    no .eml to parse, no email metadata. The filing agent is invoked with
-    a synthetic 'email' context so the existing prompt continues to work."""
-    logger.info("Processing manual upload %s ('%s')", agent_file.id, agent_file.filename)
+    Flag-off files (direct upload) stop after the OpenSearch step and end up
+    in status='indexed'. Flag-on files (Upload-AI) continue through the
+    filing agent for classification, ending in 'auto_filed' or 'in_inbox'.
+    """
+    logger.info(
+        "Processing manual upload %s ('%s', needs_classification=%s)",
+        agent_file.id, agent_file.filename, agent_file.needs_classification,
+    )
 
     doc: Document = (
         db.query(Document).filter(Document.id == agent_file.document_id).first()
@@ -272,11 +325,29 @@ def _process_manual_upload(db: Session, agent_file: AgentFile) -> None:
     if not user:
         raise ValueError(f"Document {doc.id} owner not found")
 
-    # Pull bytes from the tenant bucket and extract a text preview using the
-    # same logic that powers the email pipeline.
+    # Step 1 (Tika): pull bytes from the tenant bucket and extract text.
     bucket = get_bucket_name(user.email)
     content = load_document(bucket, str(doc.id))
     text_preview = extract_text_preview(content, agent_file.mime_type, agent_file.filename)
+
+    # Step 2 (OpenSearch): index — TODO no-op for now.
+    _index_in_opensearch(
+        document_id=doc.id,
+        owner_id=user.id,
+        folder_id=doc.folder_id,
+        filename=agent_file.filename,
+        mime_type=agent_file.mime_type,
+        text=text_preview,
+        needs_classification=agent_file.needs_classification,
+    )
+
+    # Step 3 (LLM): only when classification is requested. Direct uploads
+    # stop here — the file is already in the user's chosen folder.
+    if not agent_file.needs_classification:
+        agent_file.status = "indexed"
+        db.commit()
+        logger.info("Manual upload %s indexed (no classification needed)", agent_file.id)
+        return
 
     result = run_filing_agent(
         user_id=str(user.id),
