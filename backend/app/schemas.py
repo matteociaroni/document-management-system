@@ -203,6 +203,7 @@ class AgentOperationResponse(BaseORMModel):
     description: str
     details: Optional[dict]
     created_at: datetime
+    affected_folder_ids: list[str] = []
 
 
 # --- Agent Proposals ---

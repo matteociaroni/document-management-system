@@ -84,7 +84,7 @@ def list_agent_operations(
     db: Session = Depends(get_db),
 ):
     """Return the paginated log of agent operations for the current user, newest first."""
-    return (
+    operations = (
         db.query(AgentOperation)
         .filter(AgentOperation.user_id == user.id)
         .order_by(AgentOperation.created_at.desc())
@@ -92,6 +92,24 @@ def list_agent_operations(
         .offset(offset)
         .all()
     )
+
+    all_folders = db.query(Folder.id, Folder.parent_id).filter(Folder.owner_id == user.id).all()
+    parent_map = {str(f.id): str(f.parent_id) if f.parent_id else None for f in all_folders}
+
+    result = []
+    for op in operations:
+        op_dict = AgentOperationResponse.model_validate(op).model_dump()
+        affected_folders = set()
+        if op.details and "folder_id" in op.details and op.details["folder_id"]:
+            current_id = op.details["folder_id"]
+            while current_id:
+                affected_folders.add(current_id)
+                current_id = parent_map.get(current_id)
+        
+        op_dict["affected_folder_ids"] = list(affected_folders)
+        result.append(op_dict)
+        
+    return result
 
 
 @router.get("/proposals", response_model=list[ProposalResponse])

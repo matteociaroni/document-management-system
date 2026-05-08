@@ -53,14 +53,18 @@ export default function FileBrowser({ view, onNavigate }) {
       const unread = new Set();
       
       ops.forEach(op => {
-        if (op.details && op.details.folder_id) {
-          const folderId = op.details.folder_id;
+        const affected = op.affected_folder_ids || [];
+        if (affected.length === 0 && op.details && op.details.folder_id) {
+          affected.push(op.details.folder_id);
+        }
+        
+        affected.forEach(folderId => {
           const opTime = new Date(op.created_at).getTime();
           const readTime = readMap[folderId] || 0;
           if (opTime > readTime) {
             unread.add(folderId);
           }
-        }
+        });
       });
       setAgentModifiedFolders(unread);
     } catch (err) {

@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useBranding } from '../context/BrandingContext';
 import { LogOut, HardDrive, Users, Clock, ShieldEllipsis, Mail, Bot, Inbox } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { api } from '../services/api';
 import FileBrowser from '../components/FileBrowser';
 import HistoryView from '../components/HistoryView';
 import EmailAccountsPage from './EmailAccountsPage';
@@ -14,7 +15,24 @@ export default function DrivePage() {
   const { user, logout } = useAuth();
   const { displayName, logoUrl } = useBranding();
   const [currentView, setCurrentView] = useState('my-drive'); // my-drive | shared | history | email-accounts
+  const [inboxCount, setInboxCount] = useState(0);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const fetchInboxCount = async () => {
+      try {
+        const proposals = await api.listProposals();
+        setInboxCount(proposals.length);
+      } catch (err) {
+        console.error('Failed to fetch inbox count:', err);
+      }
+    };
+
+    fetchInboxCount();
+    // Refresh count periodically or when switching views
+    const interval = setInterval(fetchInboxCount, 30000);
+    return () => clearInterval(interval);
+  }, [currentView]);
 
   return (
     <div className="drive-layout">
@@ -69,9 +87,24 @@ export default function DrivePage() {
           <button
             className={`nav-item ${currentView === 'inbox' ? 'active' : ''}`}
             onClick={() => setCurrentView('inbox')}
+            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
           >
-            <Inbox size={20} />
-            Inbox
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <Inbox size={20} />
+              Inbox
+            </div>
+            {inboxCount > 0 && (
+              <span className="inbox-badge" style={{ 
+                backgroundColor: 'var(--brand-primary)', 
+                color: 'white', 
+                borderRadius: '9999px', 
+                padding: '0.125rem 0.5rem', 
+                fontSize: '0.75rem', 
+                fontWeight: 'bold' 
+              }}>
+                {inboxCount}
+              </span>
+            )}
           </button>
         </nav>
 
