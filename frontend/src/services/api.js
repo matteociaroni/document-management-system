@@ -210,7 +210,7 @@ export const api = {
     const data = await handleResponse(res);
 
     this.addHistory(`Uploaded "${file.name}" with AI filing`);
-    return data; // { document_id, attachment_id, status }
+    return data; // { document_id, agent_file_id, status }
   },
 
   async uploadFolder(files, rootFolderId = null) {
@@ -388,16 +388,16 @@ export const api = {
     return await handleResponse(res);
   },
 
-  async acceptProposal(attachmentId) {
-    const res = await fetch(`${API_URL}/agent/proposals/${attachmentId}/accept`, {
+  async acceptProposal(proposalId) {
+    const res = await fetch(`${API_URL}/agent/proposals/${proposalId}/accept`, {
       method: 'POST',
       headers: getHeaders()
     });
     return await handleResponse(res);
   },
 
-  async moveProposal(attachmentId, folderId) {
-    const res = await fetch(`${API_URL}/agent/proposals/${attachmentId}/move`, {
+  async moveProposal(proposalId, folderId) {
+    const res = await fetch(`${API_URL}/agent/proposals/${proposalId}/move`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ folder_id: folderId })
@@ -405,8 +405,8 @@ export const api = {
     return await handleResponse(res);
   },
 
-  async rejectProposal(attachmentId) {
-    const res = await fetch(`${API_URL}/agent/proposals/${attachmentId}/reject`, {
+  async rejectProposal(proposalId) {
+    const res = await fetch(`${API_URL}/agent/proposals/${proposalId}/reject`, {
       method: 'POST',
       headers: getHeaders()
     });

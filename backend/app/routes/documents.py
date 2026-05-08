@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from uuid import UUID
 from typing import Optional
 from app.database import get_db
-from app.models import User, Document, Folder, EmailAttachment, AgentOperation
+from app.models import User, Document, Folder, AgentFile, AgentOperation
 from app.schemas import (
     DocumentUploadRequest,
     DocumentUploadResponse,
@@ -115,7 +115,7 @@ async def upload_document_with_ai(
 ):
     """Upload a document and let the agent decide where to file it.
 
-    The classification is asynchronous: the agent worker polls EmailAttachment
+    The classification is asynchronous: the agent worker polls AgentFile
     records with source='manual_upload' and status='pending', applies the same
     confidence threshold used for email attachments, and either auto-files
     the document into the suggested folder or sends it to the user's inbox
@@ -156,7 +156,7 @@ async def upload_document_with_ai(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Upload to storage failed: {e}")
 
-    attachment = EmailAttachment(
+    agent_file = AgentFile(
         job_id=None,
         source="manual_upload",
         filename=filename,
@@ -166,25 +166,25 @@ async def upload_document_with_ai(
         document_id=doc.id,
         status="pending",
     )
-    db.add(attachment)
+    db.add(agent_file)
     db.flush()
 
     op = AgentOperation(
         user_id=user.id,
         job_id=None,
-        attachment_id=attachment.id,
+        agent_file_id=agent_file.id,
         operation_type="manual_upload_received",
         description=f"Upload AI ricevuto: '{filename}' — in attesa di classificazione",
         details={"mime_type": mime_type, "size_bytes": size_bytes},
     )
     db.add(op)
     db.commit()
-    db.refresh(attachment)
+    db.refresh(agent_file)
 
     return AIUploadResponse(
         document_id=doc.id,
-        attachment_id=attachment.id,
-        status=attachment.status,
+        agent_file_id=agent_file.id,
+        status=agent_file.status,
     )
 
 
@@ -263,9 +263,9 @@ def list_documents(
     # Hide documents either awaiting user review (in_inbox) or still being
     # classified by the agent (pending). Both states represent files that
     # should not appear loose at the root of the user's drive.
-    hidden_doc_ids = db.query(EmailAttachment.document_id).filter(
-        EmailAttachment.status.in_(("in_inbox", "pending")),
-        EmailAttachment.document_id.isnot(None),
+    hidden_doc_ids = db.query(AgentFile.document_id).filter(
+        AgentFile.status.in_(("in_inbox", "pending")),
+        AgentFile.document_id.isnot(None),
     )
     query = query.filter(~Document.id.in_(hidden_doc_ids))
 

@@ -154,7 +154,7 @@ class EmailJob(Base):
     processed_at = Column(DateTime(timezone=True), nullable=True)
 
     email_account = relationship("EmailAccount", back_populates="jobs")
-    attachments = relationship("EmailAttachment", back_populates="job", cascade="all, delete-orphan")
+    agent_files = relationship("AgentFile", back_populates="job", cascade="all, delete-orphan")
     agent_operations = relationship("AgentOperation", back_populates="job")
 
     __table_args__ = (
@@ -168,8 +168,8 @@ class EmailJob(Base):
     )
 
 
-class EmailAttachment(Base):
-    __tablename__ = "email_attachments"
+class AgentFile(Base):
+    __tablename__ = "agent_files"
 
     id = Column(PG_UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
     job_id = Column(PG_UUID(as_uuid=True), ForeignKey("email_jobs.id", ondelete="CASCADE"), nullable=True)
@@ -186,10 +186,10 @@ class EmailAttachment(Base):
     auto_filed = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    job = relationship("EmailJob", back_populates="attachments")
+    job = relationship("EmailJob", back_populates="agent_files")
     suggested_folder = relationship("Folder", foreign_keys=[suggested_folder_id])
     document = relationship("Document", foreign_keys=[document_id])
-    agent_operations = relationship("AgentOperation", back_populates="attachment")
+    agent_operations = relationship("AgentOperation", back_populates="agent_file")
 
     __table_args__ = (
         CheckConstraint(
@@ -200,10 +200,10 @@ class EmailAttachment(Base):
             "source IN ('email', 'manual_upload')",
             name="chk_attachment_source"
         ),
-        Index("idx_email_attachments_job_id", job_id),
-        Index("idx_email_attachments_status", status),
-        Index("idx_email_attachments_content_hash", content_hash),
-        Index("idx_email_attachments_source_status", source, status),
+        Index("idx_agent_files_job_id", job_id),
+        Index("idx_agent_files_status", status),
+        Index("idx_agent_files_content_hash", content_hash),
+        Index("idx_agent_files_source_status", source, status),
     )
 
 
@@ -213,7 +213,7 @@ class AgentOperation(Base):
     id = Column(PG_UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
     user_id = Column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     job_id = Column(PG_UUID(as_uuid=True), ForeignKey("email_jobs.id"), nullable=True)
-    attachment_id = Column(PG_UUID(as_uuid=True), ForeignKey("email_attachments.id"), nullable=True)
+    agent_file_id = Column(PG_UUID(as_uuid=True), ForeignKey("agent_files.id"), nullable=True)
     operation_type = Column(String(50), nullable=False)
     description = Column(Text, nullable=False)
     details = Column(JSONB, nullable=True)
@@ -221,7 +221,7 @@ class AgentOperation(Base):
 
     user = relationship("User", back_populates="agent_operations")
     job = relationship("EmailJob", back_populates="agent_operations")
-    attachment = relationship("EmailAttachment", back_populates="agent_operations")
+    agent_file = relationship("AgentFile", back_populates="agent_operations")
 
     __table_args__ = (
         CheckConstraint(

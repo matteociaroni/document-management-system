@@ -145,7 +145,7 @@ export default function InboxView() {
         <div>
           <h2 className="inbox-title">Inbox</h2>
           <p className="inbox-subtitle">
-            Allegati per cui l'agente non ha trovato una corrispondenza adeguata. Conferma la cartella suggerita o spostali manualmente.
+            Documenti per cui l'agente non ha trovato una corrispondenza adeguata. Conferma la cartella suggerita o spostali manualmente.
           </p>
         </div>
       </div>
@@ -153,11 +153,11 @@ export default function InboxView() {
       {error && <div className="error-state">{error}</div>}
 
       {loading ? (
-        <div className="loading-state">Caricamento allegati...</div>
+        <div className="loading-state">Caricamento documenti...</div>
       ) : proposals.length === 0 ? (
         <div className="empty-state">
           <Inbox size={48} opacity={0.2} />
-          <p>Nessun allegato in attesa di revisione.</p>
+          <p>Nessun documento in attesa di revisione.</p>
         </div>
       ) : (
         <div className="inbox-list">
