@@ -112,6 +112,15 @@
   text-overflow: ellipsis;
 }
 
+.result-path {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-style: italic;
+}
+
 .result-highlight {
   font-size: 0.8125rem;
   color: var(--text-secondary);
@@ -142,8 +151,9 @@
   background: var(--bg-primary);
   padding: 0.125rem 0.5rem;
   border-radius: var(--radius-full);
-  font-family: monospace;
   font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
 }
 
 .result-score {
@@ -154,10 +164,11 @@
   flex-shrink: 0;
   display: flex;
   align-items: center;
+  gap: 0.25rem;
 }
 
 .result-actions .btn-icon {
-  opacity: 0.5;
+  opacity: 0.6;
   transition: var(--transition-normal);
 }
 

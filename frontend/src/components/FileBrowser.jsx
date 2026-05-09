@@ -7,13 +7,21 @@ import MoveModal from './MoveModal';
 import { ConfirmDialog, PromptDialog } from './Dialog';
 import './FileBrowser.css';
 
-export default function FileBrowser({ view, onNavigate }) {
+export default function FileBrowser({ view, onNavigate, initialFolder }) {
+  const rootCrumb = { id: null, name: view === 'shared' ? 'Shared with me' : 'My Drive' };
+  const buildInitialBreadcrumb = () => {
+    if (initialFolder && Array.isArray(initialFolder.pathChain) && initialFolder.pathChain.length > 0) {
+      return [rootCrumb, ...initialFolder.pathChain.map(p => ({ id: p.id, name: p.name }))];
+    }
+    return [rootCrumb];
+  };
+
   const [items, setItems] = useState({ folders: [], documents: [] });
   const [loading, setLoading] = useState(true);
-  const [currentFolderId, setCurrentFolderId] = useState(null);
+  const [currentFolderId, setCurrentFolderId] = useState(initialFolder?.id ?? null);
   const [currentFolderPermission, setCurrentFolderPermission] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
-  const [breadcrumb, setBreadcrumb] = useState([{ id: null, name: view === 'shared' ? 'Shared with me' : 'My Drive' }]);
+  const [breadcrumb, setBreadcrumb] = useState(buildInitialBreadcrumb);
   const [dragActive, setDragActive] = useState(false);
   const [agentModifiedFolders, setAgentModifiedFolders] = useState(new Set());
   const { setLoading: setGlobalLoading, addToast } = useUI();

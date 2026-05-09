@@ -19,6 +19,7 @@ export default function DrivePage() {
   const [inboxCount, setInboxCount] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
+  const [initialFolder, setInitialFolder] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -63,7 +64,15 @@ export default function DrivePage() {
   const handleNavClick = (view) => {
     setSearchQuery('');
     setDebouncedQuery('');
+    setInitialFolder(null);
     setCurrentView(view);
+  };
+
+  const handleOpenFolderFromSearch = (folderId, pathChain) => {
+    setSearchQuery('');
+    setDebouncedQuery('');
+    setInitialFolder({ id: folderId, pathChain: pathChain || [] });
+    setCurrentView('my-drive');
   };
 
   return (
@@ -180,13 +189,22 @@ export default function DrivePage() {
 
       {/* Main Content Area */}
       <main className="main-content">
-        {currentView === 'my-drive' && <FileBrowser view="my-drive" onNavigate={handleNavClick} />}
+        {currentView === 'my-drive' && (
+          <FileBrowser
+            key={initialFolder ? `mydrive-${initialFolder.id || 'root'}-${Date.now()}` : 'mydrive'}
+            view="my-drive"
+            onNavigate={handleNavClick}
+            initialFolder={initialFolder}
+          />
+        )}
         {currentView === 'shared' && <FileBrowser view="shared" onNavigate={handleNavClick} />}
         {currentView === 'history' && <HistoryView />}
         {currentView === 'agent-history' && <AgentHistoryView />}
         {currentView === 'inbox' && <InboxView />}
         {currentView === 'email-accounts' && <EmailAccountsPage />}
-        {currentView === 'search' && <SearchView query={debouncedQuery} />}
+        {currentView === 'search' && (
+          <SearchView query={debouncedQuery} onOpenFolder={handleOpenFolderFromSearch} />
+        )}
       </main>
     </div>
   );
