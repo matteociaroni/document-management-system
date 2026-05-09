@@ -194,7 +194,7 @@ class AgentFile(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "status IN ('pending', 'auto_filed', 'in_inbox', 'confirmed', 'rejected', 'indexed')",
+            "status IN ('pending', 'auto_filed', 'in_inbox', 'confirmed', 'rejected', 'indexed', 'failed')",
             name="chk_attachment_status"
         ),
         CheckConstraint(

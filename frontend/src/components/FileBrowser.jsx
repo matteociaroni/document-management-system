@@ -24,7 +24,7 @@ export default function FileBrowser({ view, onNavigate, initialFolder }) {
   const [breadcrumb, setBreadcrumb] = useState(buildInitialBreadcrumb);
   const [dragActive, setDragActive] = useState(false);
   const [agentModifiedFolders, setAgentModifiedFolders] = useState(new Set());
-  const { setLoading: setGlobalLoading, addToast } = useUI();
+  const { setLoading: setGlobalLoading, addToast, startUploadTask, updateUploadProgress, finishUploadTask } = useUI();
 
   const [shareModalData, setShareModalData] = useState(null);
   const [moveModalData, setMoveModalData] = useState(null);
@@ -160,21 +160,72 @@ export default function FileBrowser({ view, onNavigate, initialFolder }) {
     input.directory = true;
     input.onchange = async (e) => {
       if (e.target.files && e.target.files.length > 0) {
-        setGlobalLoading(true, `Caricamento cartella (${e.target.files.length} file)...`);
+        const files = Array.from(e.target.files);
+        const controller = startUploadTask(files.length);
+
+        // Run upload in the background — no setGlobalLoading
         try {
-          console.log(`Uploading ${e.target.files.length} files from folder...`);
-          await api.uploadFolder(Array.from(e.target.files), currentFolderId);
-          addToast("Cartella caricata con successo", "success");
+          const result = await api.uploadFolder(files, currentFolderId, {
+            signal: controller.signal,
+            onProgress: (completed, currentFile, errors) => {
+              updateUploadProgress(completed, currentFile, errors);
+            },
+          });
+
+          finishUploadTask();
           fetchItems();
+
+          if (result.cancelled) {
+            addToast(`Upload interrotto: ${result.completed}/${result.total} file caricati`, 'info');
+          } else if (result.errors.length > 0) {
+            addToast(`${result.errors.length} file non caricati`, 'error');
+          }
         } catch (err) {
           console.error('Folder upload error:', err);
-          addToast(`Errore durante il caricamento cartella: ${err.message}`, "error");
-        } finally {
-          setGlobalLoading(false);
+          finishUploadTask();
+          fetchItems();
         }
       }
     };
     input.click();
+  };
+
+  // ── Helpers for drag-and-drop folder traversal ──────────────────────
+
+  /** Recursively read all File objects from a dropped directory entry. */
+  const readEntryRecursive = (entry, path = '') => {
+    return new Promise((resolve) => {
+      if (entry.isFile) {
+        entry.file((file) => {
+          // Attach the relative path so uploadFolder can recreate the structure
+          Object.defineProperty(file, 'webkitRelativePath', {
+            value: path + file.name,
+            writable: false,
+          });
+          resolve([file]);
+        }, () => resolve([]));
+      } else if (entry.isDirectory) {
+        const reader = entry.createReader();
+        const allEntries = [];
+
+        // readEntries may return partial results — call until empty
+        const readBatch = () => {
+          reader.readEntries((entries) => {
+            if (entries.length === 0) {
+              Promise.all(
+                allEntries.map((e) => readEntryRecursive(e, path + entry.name + '/'))
+              ).then((results) => resolve(results.flat()));
+            } else {
+              allEntries.push(...entries);
+              readBatch();
+            }
+          }, () => resolve([]));
+        };
+        readBatch();
+      } else {
+        resolve([]);
+      }
+    });
   };
 
   const handleDrop = async (e) => {
@@ -196,20 +247,94 @@ export default function FileBrowser({ view, onNavigate, initialFolder }) {
       } finally {
         setGlobalLoading(false);
       }
+      return;
+    }
+
+    // Detect if any dropped item is a directory
+    const items = e.dataTransfer.items;
+    let hasDirectory = false;
+    const entries = [];
+    if (items) {
+      for (let i = 0; i < items.length; i++) {
+        const entry = items[i].webkitGetAsEntry?.();
+        if (entry) {
+          entries.push(entry);
+          if (entry.isDirectory) hasDirectory = true;
+        }
+      }
+    }
+
+    if (hasDirectory && entries.length > 0) {
+      // ── Folder drop: traverse tree, then use uploadFolder ──
+      const allFiles = [];
+      for (const entry of entries) {
+        const files = await readEntryRecursive(entry);
+        allFiles.push(...files);
+      }
+
+      if (allFiles.length === 0) return;
+
+      const controller = startUploadTask(allFiles.length);
+      try {
+        const result = await api.uploadFolder(allFiles, currentFolderId, {
+          signal: controller.signal,
+          onProgress: (completed, currentFile, errors) => {
+            updateUploadProgress(completed, currentFile, errors);
+          },
+        });
+
+        finishUploadTask();
+        fetchItems();
+
+        if (result.cancelled) {
+          addToast(`Upload interrotto: ${result.completed}/${result.total} file caricati`, 'info');
+        } else if (result.errors.length > 0) {
+          addToast(`${result.errors.length} file non caricati`, 'error');
+        }
+      } catch (err) {
+        console.error('Folder drop upload error:', err);
+        finishUploadTask();
+        fetchItems();
+      }
     } else {
-      const files = e.dataTransfer.files;
-      if (files && files.length > 0) {
-        setGlobalLoading(true, `Caricamento di ${files.length} file in corso...`);
+      // ── Plain file drop ──
+      const files = Array.from(e.dataTransfer.files);
+      if (files.length === 1) {
+        setGlobalLoading(true, "Caricamento file in corso...");
         try {
-          for (let i = 0; i < files.length; i++) {
-            await api.uploadDocument(files[i], currentFolderId);
-          }
-          addToast("File caricati con successo", "success");
+          await api.uploadDocument(files[0], currentFolderId);
+          addToast("File caricato con successo", "success");
           fetchItems();
         } catch (err) {
           addToast(`Errore durante il caricamento: ${err.message}`, "error");
         } finally {
           setGlobalLoading(false);
+        }
+      } else if (files.length > 1) {
+        const controller = startUploadTask(files.length);
+        try {
+          let completed = 0;
+          let errors = 0;
+          for (const file of files) {
+            if (controller.signal.aborted) break;
+            updateUploadProgress(completed, file.name, errors);
+            try {
+              await api.uploadDocument(file, currentFolderId, { signal: controller.signal });
+            } catch (err) {
+              if (err.name === 'AbortError') break;
+              errors++;
+            }
+            completed++;
+            updateUploadProgress(completed, file.name, errors);
+          }
+          finishUploadTask();
+          fetchItems();
+          if (errors > 0) {
+            addToast(`${errors} file non caricati`, 'error');
+          }
+        } catch (err) {
+          finishUploadTask();
+          fetchItems();
         }
       }
     }

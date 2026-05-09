@@ -192,7 +192,8 @@ CREATE TABLE agent_files (
                 'in_inbox',
                 'confirmed',
                 'rejected',
-                'indexed'
+                'indexed',
+                'failed'
             )
         ),
         CONSTRAINT chk_agent_file_source CHECK (

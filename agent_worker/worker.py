@@ -382,11 +382,28 @@ def _process_manual_upload(db: Session, agent_file: AgentFile, os_client: OpenSe
         agent_file.id, agent_file.filename, agent_file.needs_classification,
     )
 
+    # Guard against orphaned records (document deleted while AgentFile was
+    # still pending).  Mark as failed so the worker stops retrying.
+    if not agent_file.document_id:
+        logger.warning(
+            "AgentFile %s has no document_id (orphaned) — marking as failed",
+            agent_file.id,
+        )
+        agent_file.status = "failed"
+        db.commit()
+        return
+
     doc: Document = (
         db.query(Document).filter(Document.id == agent_file.document_id).first()
     )
     if not doc:
-        raise ValueError(f"AgentFile {agent_file.id} has no associated document")
+        logger.warning(
+            "AgentFile %s references missing document %s — marking as failed",
+            agent_file.id, agent_file.document_id,
+        )
+        agent_file.status = "failed"
+        db.commit()
+        return
 
     user: User = db.query(User).filter(User.id == doc.owner_id).first()
     if not user:
@@ -514,21 +531,28 @@ def _process_manual_upload_safe(db: Session, agent_file: AgentFile, os_client: O
                 .first()
             )
             if agent_file is not None:
-                agent_file.status = "in_inbox"
+                agent_file.status = "failed"
                 agent_file.agent_reasoning = (
-                    "Classificazione fallita: l'agente non ha potuto processare il file. "
-                    "Sposta manualmente il documento nella cartella desiderata."
+                    "Elaborazione fallita: il file non ha potuto essere processato. "
+                    "Riprova il caricamento oppure contatta l'assistenza."
                 )
-                db.add(AgentOperation(
-                    user_id=db.query(Document.owner_id)
-                              .filter(Document.id == agent_file.document_id)
-                              .scalar(),
-                    job_id=None,
-                    agent_file_id=agent_file.id,
-                    operation_type="error",
-                    description=f"Classificazione fallita per '{agent_file.filename}': {e}",
-                    details={"error": str(e)},
-                ))
+                # Safely resolve owner_id — document may have been deleted.
+                owner_id = None
+                if agent_file.document_id:
+                    owner_id = (
+                        db.query(Document.owner_id)
+                        .filter(Document.id == agent_file.document_id)
+                        .scalar()
+                    )
+                if owner_id:
+                    db.add(AgentOperation(
+                        user_id=owner_id,
+                        job_id=None,
+                        agent_file_id=agent_file.id,
+                        operation_type="error",
+                        description=f"Elaborazione fallita per '{agent_file.filename}': {e}",
+                        details={"error": str(e)},
+                    ))
                 db.commit()
         except Exception:
             db.rollback()

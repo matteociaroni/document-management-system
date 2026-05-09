@@ -320,6 +320,21 @@ def delete_document(document_id: UUID, user: User = Depends(get_current_user), d
             raise HTTPException(status_code=403, detail="No write access to folder")
     
     owner_id = doc.owner_id
+
+    # Clean up AgentFile records that reference this document so the
+    # agent_worker doesn't keep retrying orphaned pending entries.
+    linked_agent_files = (
+        db.query(AgentFile)
+        .filter(AgentFile.document_id == document_id)
+        .all()
+    )
+    for af in linked_agent_files:
+        # Detach AgentOperation FK references first
+        db.query(AgentOperation).filter(
+            AgentOperation.agent_file_id == af.id
+        ).update({"agent_file_id": None})
+        db.delete(af)
+
     db.delete(doc)
     db.commit()
 
