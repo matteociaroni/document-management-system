@@ -19,7 +19,8 @@ class ParsedAttachment:
     mime_type: str
     size_bytes: int
     content: bytes
-    text_preview: str | None
+    text_preview: str | None   # truncated to TEXT_PREVIEW_CHARS — for LLM
+    full_text: str | None      # full extracted text — for OpenSearch indexing
 
 
 @dataclass
@@ -106,12 +107,15 @@ def extract_text_preview(content: bytes, mime_type: str | None, filename: str) -
     """
     Extract a text preview from a standalone file, mirroring the email-attachment
     pipeline. Uses Apache Tika to uniformly extract text across all file formats.
+    Returns the text truncated to TEXT_PREVIEW_CHARS for LLM consumption.
     """
     if not content:
         return None
 
-    # Use Tika for everything else (PDFs, DOCX, XLSX, images, etc.)
-    return extract_text_with_tika(content)
+    full_text = extract_text_with_tika(content)
+    if not full_text:
+        return None
+    return full_text[:TEXT_PREVIEW_CHARS]
 
 
 def parse_email(raw_bytes: bytes) -> ParsedEmail:
@@ -145,11 +149,12 @@ def _extract_attachments(msg: email.message.Message) -> list[ParsedAttachment]:
             continue
 
         mime_type = part.get_content_type()
-        
-        # We reuse the unified `extract_text_preview`
-        text_preview = extract_text_preview(payload, mime_type, filename)
+
+        # Call Tika once; derive both full_text and truncated preview from it.
+        full_text = extract_text_with_tika(payload)
+        text_preview = full_text[:TEXT_PREVIEW_CHARS] if full_text else None
         logger.info("Extracted attachment: %s (%s, %d bytes)", filename, mime_type, len(payload))
-    
+
         results.append(
             ParsedAttachment(
                 filename=filename,
@@ -157,9 +162,9 @@ def _extract_attachments(msg: email.message.Message) -> list[ParsedAttachment]:
                 size_bytes=len(payload),
                 content=payload,
                 text_preview=text_preview,
+                full_text=full_text,
             )
         )
-        logger.debug("Extracted attachment: %s (%s, %d bytes)", filename, mime_type, len(payload))
 
     logger.info("Parsed %d attachment(s) from .eml", len(results))
     return results

@@ -319,8 +319,13 @@ def delete_document(document_id: UUID, user: User = Depends(get_current_user), d
         if folder.owner_id != user.id and not has_write_permission(db, user.id, folder_id=doc.folder_id):
             raise HTTPException(status_code=403, detail="No write access to folder")
     
+    owner_id = doc.owner_id
     db.delete(doc)
     db.commit()
+
+    # Remove from OpenSearch tenant index (best effort)
+    from app.routes.search import delete_from_index
+    delete_from_index(owner_id, document_id)
 
 
 @router.post("/{document_id}/copy", response_model=DocumentResponse)

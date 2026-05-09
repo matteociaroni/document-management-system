@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     # OAuth2 - Outlook
     microsoft_client_id: str = ""
     microsoft_client_secret: str = ""
+
+    # OpenSearch
+    opensearch_url: str = "http://opensearch:9200"
     
     class Config:
         env_file = ".env"

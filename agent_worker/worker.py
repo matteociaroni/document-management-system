@@ -12,7 +12,7 @@ Polls the DB every POLL_INTERVAL seconds and processes two distinct queues:
 
 Pipeline applied to every file (regardless of needs_classification):
     1. Tika  — extract text from the file bytes.
-    2. OpenSearch — index the extracted text (TODO: stubbed for now).
+    2. OpenSearch — index the extracted text (per-tenant index).
     3. LLM (filing agent) — only when needs_classification=True; decides
        auto_filed vs in_inbox based on the confidence threshold.
 
@@ -24,8 +24,10 @@ import hashlib
 import logging
 import time
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 from uuid import UUID
 
+from opensearchpy import OpenSearch, NotFoundError as OSNotFoundError
 from sqlalchemy.orm import Session
 
 from config import settings
@@ -34,6 +36,7 @@ from database import SessionLocal
 from eml_parser import extract_text_preview, parse_email
 from models import AgentOperation, Document, EmailAccount, AgentFile, EmailJob, User
 from storage import ensure_bucket, get_bucket_name, get_s3_client, load_document, load_eml, EML_BUCKET
+from text_extractor import extract_text_with_tika, TEXT_PREVIEW_CHARS
 
 logging.basicConfig(
     level=logging.INFO,
@@ -41,8 +44,56 @@ logging.basicConfig(
 )
 logger = logging.getLogger("agent_worker")
 
+# ── OpenSearch helpers ──────────────────────────────────────────────────────
+
+OPENSEARCH_INDEX_MAPPING = {
+    "mappings": {
+        "properties": {
+            "document_id": {"type": "keyword"},
+            "owner_id":    {"type": "keyword"},
+            "folder_id":   {"type": "keyword"},
+            "filename": {
+                "type": "text",
+                "fields": {"keyword": {"type": "keyword"}},
+            },
+            "mime_type":   {"type": "keyword"},
+            "text":        {"type": "text", "analyzer": "standard"},
+            "created_at":  {"type": "date"},
+        }
+    }
+}
+
+# Set of index names already confirmed to exist (avoids repeated HEAD calls).
+_existing_indices: set[str] = set()
+
+
+def _get_opensearch_client() -> OpenSearch:
+    """Create and return an OpenSearch client from settings."""
+    parsed = urlparse(settings.opensearch_url)
+    return OpenSearch(
+        hosts=[{"host": parsed.hostname, "port": parsed.port or 9200}],
+        use_ssl=False,
+        verify_certs=False,
+    )
+
+
+def _get_index_name(owner_id) -> str:
+    """Per-tenant index name: documents_<uuid_without_hyphens>."""
+    return f"documents_{str(owner_id).replace('-', '')}"
+
+
+def _ensure_index(client: OpenSearch, index_name: str) -> None:
+    """Create the tenant index with its mapping if it doesn't already exist."""
+    if index_name in _existing_indices:
+        return
+    if not client.indices.exists(index=index_name):
+        client.indices.create(index=index_name, body=OPENSEARCH_INDEX_MAPPING)
+        logger.info("Created OpenSearch index '%s'", index_name)
+    _existing_indices.add(index_name)
+
 
 def _index_in_opensearch(
+    client: OpenSearch,
     *,
     document_id,
     owner_id,
@@ -50,20 +101,34 @@ def _index_in_opensearch(
     filename: str,
     mime_type: str | None,
     text: str | None,
-    needs_classification: bool,
 ) -> None:
     """Pipeline step 2: send extracted text to OpenSearch for full-text search.
 
-    TODO: actually implement. Wire up an OpenSearch client and index a
-    document with the fields below. This runs for every AgentFile (both
-    classifiable and direct uploads) so the search index covers everything.
+    Uses per-tenant indexing — each user gets their own index.  The document
+    ID is used as the OpenSearch document id so re-indexing the same doc is an
+    idempotent upsert.
     """
-    logger.debug(
-        "TODO: index document %s ('%s', %s chars) in OpenSearch "
-        "[needs_classification=%s]",
-        document_id, filename, len(text) if text else 0, needs_classification,
+    index_name = _get_index_name(owner_id)
+    _ensure_index(client, index_name)
+
+    body = {
+        "document_id": str(document_id),
+        "owner_id": str(owner_id),
+        "folder_id": str(folder_id) if folder_id else None,
+        "filename": filename,
+        "mime_type": mime_type,
+        "text": text,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    client.index(index=index_name, id=str(document_id), body=body)
+    logger.info(
+        "Indexed document %s ('%s', %s chars) in %s",
+        document_id, filename, len(text) if text else 0, index_name,
     )
 
+
+# ── Existing helpers ────────────────────────────────────────────────────────
 
 def _get_pending_jobs(db: Session) -> list[EmailJob]:
     return (
@@ -95,7 +160,7 @@ def _log_op(
     db.add(op)
 
 
-def _process_job(db: Session, job: EmailJob) -> None:
+def _process_job(db: Session, job: EmailJob, os_client: OpenSearch) -> None:
     logger.info("Processing job %s (uid=%d)", job.id, job.message_uid)
 
     # Resolve user through the email account
@@ -170,18 +235,20 @@ def _process_job(db: Session, job: EmailJob) -> None:
     db.commit()
     logger.info("Uploaded %d attachment(s) for job %s", len(records), job.id)
 
-    # Pipeline step 2: index every attachment in OpenSearch (TODO no-op).
-    # Tika has already produced att.text_preview during parse_email.
+    # Pipeline step 2: index every attachment in OpenSearch (full text).
     for att, agent_file, doc in records:
-        _index_in_opensearch(
-            document_id=doc.id,
-            owner_id=user.id,
-            folder_id=doc.folder_id,
-            filename=att.filename,
-            mime_type=att.mime_type,
-            text=att.text_preview,
-            needs_classification=agent_file.needs_classification,
-        )
+        try:
+            _index_in_opensearch(
+                os_client,
+                document_id=doc.id,
+                owner_id=user.id,
+                folder_id=doc.folder_id,
+                filename=att.filename,
+                mime_type=att.mime_type,
+                text=att.full_text,
+            )
+        except Exception as e:
+            logger.warning("OpenSearch indexing failed for doc %s: %s", doc.id, e)
 
     # Run CrewAI crew
     attachment_dicts = [
@@ -267,12 +334,12 @@ def _process_job(db: Session, job: EmailJob) -> None:
     logger.info("Job %s completed", job.id)
 
 
-def _process_job_safe(db: Session, job: EmailJob) -> None:
+def _process_job_safe(db: Session, job: EmailJob, os_client: OpenSearch) -> None:
     """Wrap _process_job with error handling that marks the job as failed."""
     try:
         job.status = "processing"
         db.commit()
-        _process_job(db, job)
+        _process_job(db, job, os_client)
     except Exception as e:
         db.rollback()
         logger.error("Job %s failed: %s", job.id, e, exc_info=True)
@@ -303,7 +370,7 @@ def _get_pending_manual_uploads(db: Session) -> list[AgentFile]:
     )
 
 
-def _process_manual_upload(db: Session, agent_file: AgentFile) -> None:
+def _process_manual_upload(db: Session, agent_file: AgentFile, os_client: OpenSearch) -> None:
     """Run the unified pipeline for a user-uploaded document.
 
     Flag-off files (direct upload) stop after the OpenSearch step and end up
@@ -328,18 +395,22 @@ def _process_manual_upload(db: Session, agent_file: AgentFile) -> None:
     # Step 1 (Tika): pull bytes from the tenant bucket and extract text.
     bucket = get_bucket_name(user.email)
     content = load_document(bucket, str(doc.id))
-    text_preview = extract_text_preview(content, agent_file.mime_type, agent_file.filename)
+    full_text = extract_text_with_tika(content)
+    text_preview = full_text[:TEXT_PREVIEW_CHARS] if full_text else None
 
-    # Step 2 (OpenSearch): index — TODO no-op for now.
-    _index_in_opensearch(
-        document_id=doc.id,
-        owner_id=user.id,
-        folder_id=doc.folder_id,
-        filename=agent_file.filename,
-        mime_type=agent_file.mime_type,
-        text=text_preview,
-        needs_classification=agent_file.needs_classification,
-    )
+    # Step 2 (OpenSearch): index full text in tenant index.
+    try:
+        _index_in_opensearch(
+            os_client,
+            document_id=doc.id,
+            owner_id=user.id,
+            folder_id=doc.folder_id,
+            filename=agent_file.filename,
+            mime_type=agent_file.mime_type,
+            text=full_text,
+        )
+    except Exception as e:
+        logger.warning("OpenSearch indexing failed for doc %s: %s", doc.id, e)
 
     # Step 3 (LLM): only when classification is requested. Direct uploads
     # stop here — the file is already in the user's chosen folder.
@@ -428,10 +499,10 @@ def _process_manual_upload(db: Session, agent_file: AgentFile) -> None:
     db.commit()
 
 
-def _process_manual_upload_safe(db: Session, agent_file: AgentFile) -> None:
+def _process_manual_upload_safe(db: Session, agent_file: AgentFile, os_client: OpenSearch) -> None:
     """Wrap _process_manual_upload so a failure on one item never stops the loop."""
     try:
-        _process_manual_upload(db, agent_file)
+        _process_manual_upload(db, agent_file, os_client)
     except Exception as e:
         db.rollback()
         logger.error("Manual upload %s failed: %s", agent_file.id, e, exc_info=True)
@@ -475,6 +546,10 @@ def run_worker() -> None:
     ensure_bucket(s3, EML_BUCKET)
     logger.info("EML bucket '%s' is ready", EML_BUCKET)
 
+    # Create OpenSearch client
+    os_client = _get_opensearch_client()
+    logger.info("OpenSearch client connected to %s", settings.opensearch_url)
+
     while True:
         db: Session = SessionLocal()
         try:
@@ -482,13 +557,13 @@ def run_worker() -> None:
             if jobs:
                 logger.info("Found %d pending email job(s)", len(jobs))
             for job in jobs:
-                _process_job_safe(db, job)
+                _process_job_safe(db, job, os_client)
 
             manual_uploads = _get_pending_manual_uploads(db)
             if manual_uploads:
                 logger.info("Found %d pending manual upload(s)", len(manual_uploads))
             for agent_file in manual_uploads:
-                _process_manual_upload_safe(db, agent_file)
+                _process_manual_upload_safe(db, agent_file, os_client)
         except Exception as e:
             logger.error("Unexpected error in poll cycle: %s", e, exc_info=True)
         finally:

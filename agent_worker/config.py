@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     poll_interval_seconds: int = 30
     auto_file_threshold: float = 0.85
 
+    opensearch_url: str = "http://opensearch:9200"
+
     model_config = SettingsConfigDict(
         env_file=(".env", "../.env"),
         extra="ignore",

@@ -66,11 +66,14 @@ services:
       S3_ACCESS_KEY: ${S3_ACCESS_KEY}
       S3_SECRET_KEY: ${S3_SECRET_KEY}
       EMAIL_ENCRYPTION_KEY: ${EMAIL_ENCRYPTION_KEY}
+      OPENSEARCH_URL: ${OPENSEARCH_URL}
     depends_on:
       postgres:
         condition: service_healthy
       s3:
         condition: service_started
+      opensearch:
+        condition: service_healthy
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
   frontend:
@@ -122,6 +125,7 @@ services:
       BASE_URL: ${BASE_URL}
       CUSTOM_API_KEY: ${CUSTOM_API_KEY}
       MCP_SERVER_URL: ${MCP_SERVER_URL}
+      OPENSEARCH_URL: ${OPENSEARCH_URL}
     depends_on:
       postgres:
         condition: service_healthy
@@ -131,12 +135,32 @@ services:
         condition: service_started
       tika:
         condition: service_started
+      opensearch:
+        condition: service_healthy
 
   tika:
     image: apache/tika:latest
     container_name: tika_server
     ports:
       - "9998:9998"
+
+  opensearch:
+    image: opensearchproject/opensearch:2.18.0
+    container_name: opensearch
+    environment:
+      - discovery.type=single-node
+      - plugins.security.disabled=true
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=MyStr0ng!Pass
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
 
   # adminer:
   #   image: adminer
@@ -149,3 +173,4 @@ services:
 
 volumes:
   postgres_data:
+  opensearch_data:

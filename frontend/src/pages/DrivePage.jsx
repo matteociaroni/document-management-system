@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useBranding } from '../context/BrandingContext';
-import { LogOut, HardDrive, Users, Clock, ShieldEllipsis, Mail, Bot, Inbox } from 'lucide-react';
+import { LogOut, HardDrive, Users, Clock, ShieldEllipsis, Mail, Bot, Inbox, Search } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import FileBrowser from '../components/FileBrowser';
@@ -9,13 +9,16 @@ import HistoryView from '../components/HistoryView';
 import EmailAccountsPage from './EmailAccountsPage';
 import AgentHistoryView from '../components/AgentHistoryView';
 import InboxView from '../components/InboxView';
+import SearchView from '../components/SearchView';
 import './DrivePage.css';
 
 export default function DrivePage() {
   const { user, logout } = useAuth();
   const { displayName, logoUrl } = useBranding();
-  const [currentView, setCurrentView] = useState('my-drive'); // my-drive | shared | history | email-accounts
+  const [currentView, setCurrentView] = useState('my-drive');
   const [inboxCount, setInboxCount] = useState(0);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -34,6 +37,35 @@ export default function DrivePage() {
     return () => clearInterval(interval);
   }, [currentView]);
 
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedQuery(searchQuery);
+      if (searchQuery.trim().length > 0) {
+        setCurrentView('search');
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const handleSearchChange = (e) => {
+    setSearchQuery(e.target.value);
+  };
+
+  const handleSearchClear = () => {
+    setSearchQuery('');
+    setDebouncedQuery('');
+    if (currentView === 'search') {
+      setCurrentView('my-drive');
+    }
+  };
+
+  const handleNavClick = (view) => {
+    setSearchQuery('');
+    setDebouncedQuery('');
+    setCurrentView(view);
+  };
+
   return (
     <div className="drive-layout">
       {/* Sidebar */}
@@ -43,11 +75,28 @@ export default function DrivePage() {
           <div className="brand">{displayName}</div>
         </div>
 
+        {/* Search bar */}
+        <div className="sidebar-search">
+          <Search size={16} className="search-icon" />
+          <input
+            type="text"
+            className="search-input"
+            placeholder="Cerca nei documenti..."
+            value={searchQuery}
+            onChange={handleSearchChange}
+          />
+          {searchQuery && (
+            <button className="search-clear" onClick={handleSearchClear}>
+              ✕
+            </button>
+          )}
+        </div>
+
         <nav className="sidebar-nav">
           <div className="nav-section-title">Drive</div>
           <button
             className={`nav-item ${currentView === 'my-drive' ? 'active' : ''}`}
-            onClick={() => setCurrentView('my-drive')}
+            onClick={() => handleNavClick('my-drive')}
           >
             <HardDrive size={20} />
             My Drive
@@ -55,7 +104,7 @@ export default function DrivePage() {
 
           <button
             className={`nav-item ${currentView === 'shared' ? 'active' : ''}`}
-            onClick={() => setCurrentView('shared')}
+            onClick={() => handleNavClick('shared')}
           >
             <Users size={20} />
             Shared with me
@@ -63,7 +112,7 @@ export default function DrivePage() {
 
           <button
             className={`nav-item ${currentView === 'history' ? 'active' : ''}`}
-            onClick={() => setCurrentView('history')}
+            onClick={() => handleNavClick('history')}
           >
             <Clock size={20} />
             History
@@ -72,21 +121,21 @@ export default function DrivePage() {
           <div className="nav-section-title">Agentic Integration</div>
           <button
             className={`nav-item ${currentView === 'email-accounts' ? 'active' : ''}`}
-            onClick={() => setCurrentView('email-accounts')}
+            onClick={() => handleNavClick('email-accounts')}
           >
             <Mail size={20} />
             Email Accounts
           </button>
           <button
             className={`nav-item ${currentView === 'agent-history' ? 'active' : ''}`}
-            onClick={() => setCurrentView('agent-history')}
+            onClick={() => handleNavClick('agent-history')}
           >
             <Bot size={20} />
             Agent History
           </button>
           <button
             className={`nav-item ${currentView === 'inbox' ? 'active' : ''}`}
-            onClick={() => setCurrentView('inbox')}
+            onClick={() => handleNavClick('inbox')}
             style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -131,12 +180,13 @@ export default function DrivePage() {
 
       {/* Main Content Area */}
       <main className="main-content">
-        {currentView === 'my-drive' && <FileBrowser view="my-drive" onNavigate={setCurrentView} />}
-        {currentView === 'shared' && <FileBrowser view="shared" onNavigate={setCurrentView} />}
+        {currentView === 'my-drive' && <FileBrowser view="my-drive" onNavigate={handleNavClick} />}
+        {currentView === 'shared' && <FileBrowser view="shared" onNavigate={handleNavClick} />}
         {currentView === 'history' && <HistoryView />}
         {currentView === 'agent-history' && <AgentHistoryView />}
         {currentView === 'inbox' && <InboxView />}
         {currentView === 'email-accounts' && <EmailAccountsPage />}
+        {currentView === 'search' && <SearchView query={debouncedQuery} />}
       </main>
     </div>
   );

@@ -540,5 +540,12 @@ export const api = {
       headers: getHeaders()
     });
     return await handleResponse(res);
+  },
+
+  // Search
+  async searchDocuments(query, limit = 20, offset = 0) {
+    const params = new URLSearchParams({ q: query, limit, offset });
+    const res = await fetch(`${API_URL}/search?${params}`, { headers: getHeaders() });
+    return await handleResponse(res);
   }
 };
