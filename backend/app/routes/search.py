@@ -80,11 +80,27 @@ def search_documents(
 
     body = {
         "query": {
-            "multi_match": {
-                "query": q,
-                "fields": ["text", "filename^2"],
-                "type": "best_fields",
-                "fuzziness": "AUTO",
+            "bool": {
+                "should": [
+                    {
+                        "multi_match": {
+                            "query": q,
+                            "fields": ["text", "filename^2"],
+                            "type": "best_fields",
+                            "fuzziness": "AUTO",
+                        }
+                    },
+                    {
+                        "wildcard": {
+                            "filename.keyword": {
+                                "value": f"*{q}*",
+                                "case_insensitive": True,
+                                "boost": 2.0
+                            }
+                        }
+                    }
+                ],
+                "minimum_should_match": 1
             }
         },
         "highlight": {
