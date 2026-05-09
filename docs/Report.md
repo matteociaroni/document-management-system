@@ -88,17 +88,54 @@ Un ulteriore vantaggio è l’ampio ecosistema di librerie e strumenti disponibi
 
 Infine, il frontend è stato progettato per comunicare esclusivamente tramite API REST con il backend, garantendo una netta separazione tra logica di presentazione e logica applicativa. Questo approccio favorisce la scalabilità e consente in futuro di sostituire o estendere l’interfaccia utente senza modificare la parte server.
 
-### Ricerca
+### Estrazione del testo dai file
 
-[descrizione di come è stata implementata la funzionalità di ricerca]
+Per l’elaborazione automatica dei documenti è stato utilizzato **Apache Tika**, un framework open source progettato per l’estrazione di testo e metadati da numerosi formati di file, tra cui PDF, documenti Office, file di testo e immagini contenenti testo.
+
+L’utilizzo di Apache Tika consente al sistema di ottenere una rappresentazione testuale uniforme dei documenti caricati dagli utenti o acquisiti automaticamente tramite allegati email. Questo passaggio è fondamentale poiché i file binari non possono essere elaborati direttamente dai servizi di ricerca o dagli agenti AI.
+
+Tra le alternative considerate rientrano librerie specifiche per singoli formati, come parser dedicati ai PDF o ai documenti Office. Tuttavia, queste soluzioni avrebbero richiesto l’integrazione e la manutenzione di strumenti differenti per ogni tipologia di file supportata. Apache Tika offre invece un’interfaccia unificata e indipendente dal formato del documento, semplificando notevolmente la pipeline di elaborazione.
+
+Nel progetto, Tika viene utilizzato principalmente per due scopi. Il primo riguarda la ricerca documentale: il testo estratto dai file viene indicizzato così da consentire ricerche full-text e semantiche sui contenuti dei documenti. Il secondo riguarda l’elaborazione automatica tramite agenti AI: il contenuto estratto viene utilizzato per analizzare il significato dei documenti e supportare operazioni di classificazione e organizzazione automatica all’interno del sistema.
+
+### Ricerca dei file
+
+Per implementare le funzionalità di ricerca avanzata è stato adottato **OpenSearch**, un motore di ricerca progettato per l’indicizzazione e l’interrogazione efficiente di grandi quantità di dati testuali.
+
+L’utilizzo di un motore di ricerca dedicato si è reso necessario poiché il database relazionale utilizzato dal sistema contiene principalmente metadati e non è ottimizzato per eseguire ricerche complesse sul contenuto completo dei documenti. Attraverso OpenSearch è invece possibile indicizzare il testo estratto dai file e fornire ricerche rapide anche su dataset di grandi dimensioni.
+
+Tra le alternative considerate rientrano Elasticsearch e la full-text search nativa di PostgreSQL. La ricerca full-text di PostgreSQL rappresenta una soluzione semplice da integrare e sufficiente per casi limitati, ma meno adatta a gestire funzionalità avanzate e carichi elevati su grandi quantità di documenti. Elasticsearch costituisce invece il principale riferimento del settore, ma OpenSearch è stato preferito in quanto completamente open source e compatibile con gran parte dell’ecosistema Elasticsearch.
+
+OpenSearch offre inoltre funzionalità particolarmente utili per il progetto, come il supporto alla ricerca full-text, filtri avanzati, ranking dei risultati e ricerca vettoriale tramite embeddings. Questo consente non solo di effettuare ricerche basate su parole chiave, ma anche ricerche semantiche in grado di individuare documenti concettualmente simili alle query dell’utente.
+
+Nel sistema, OpenSearch viene alimentato dai contenuti estratti tramite Apache Tika. I documenti vengono elaborati da worker dedicati che estraggono il testo, generano eventuali embeddings e aggiornano l’indice di ricerca. Questo approccio asincrono consente di mantenere separate le operazioni di upload dalla fase di indicizzazione, migliorando la scalabilità e le prestazioni complessive della piattaforma.
+
+Infine, l’adozione di OpenSearch permette di estendere facilmente il sistema con funzionalità future legate all’intelligenza artificiale, come sistemi di recommendation, ricerca semantica avanzata e integrazione con pipeline RAG basate su modelli linguistici.
 
 ### Classificazione automatica
 
-[descrizione di come è stata implementata la funzionalità di classificazione automatica]
+Il sistema include una funzionalità di classificazione automatica dei documenti con l’obiettivo di semplificare l’organizzazione dei file caricati dagli utenti e ridurre le operazioni manuali di gestione delle cartelle.
+
+La pipeline di elaborazione inizia con **Apache Tika**, che estrae il contenuto testuale e i metadati dai documenti caricati nel sistema. Il testo ottenuto viene quindi utilizzato come input per un agente AI incaricato di determinare la categoria o la directory più appropriata in cui collocare il documento.
+
+L’agente è stato sviluppato utilizzando **Atomic Agents**, un framework che consente di costruire agenti modulari e integrabili con strumenti esterni. Per interagire con il sistema documentale, l’agente utilizza un server **MCP** (Model Context Protocol) che espone una serie di tool dedicati all’accesso controllato alle informazioni del DMS, come la visualizzazione delle directory disponibili e i file che contengono.
+
+Attraverso questi strumenti l’agente può analizzare la struttura esistente del sistema documentale e confrontare il contenuto del nuovo file con i documenti già archiviati. In questo modo la classificazione non si basa solamente sul nome del file o su regole statiche, ma sul contenuto semantico del documento e sul contesto organizzativo già presente nel sistema.
+
+L’intero processo viene eseguito in modo asincrono tramite worker dedicati e code di elaborazione, così da non impattare sulle operazioni di upload effettuate dagli utenti. Questa architettura consente inoltre di estendere facilmente il comportamento dell’agente introducendo nuovi strumenti MCP o nuove strategie di classificazione senza modificare le componenti principali del sistema.
 
 ### Caricamento automatico
 
-[descrizione di come è stata implementata la funzionalità di caricamento automatica dalle email]
+Il sistema integra una funzionalità di acquisizione automatica dei documenti tramite email, con l’obiettivo di semplificare ulteriormente il caricamento dei file e automatizzare il processo di archiviazione documentale.
 
+Per ogni utente è possibile configurare uno o più account email associati al sistema. Un componente software dedicato effettua periodicamente il collegamento ai server di posta tramite protocollo **IMAP**, verificando la presenza di nuovi messaggi ricevuti e individuando eventuali allegati.
+
+Gli allegati vengono quindi estratti dalle email e salvati nel sistema di object storage, mantenendo separata la gestione dei file dai metadati applicativi. Contestualmente vengono creati gli opportuni riferimenti nel database, così da integrare i documenti all’interno del DMS come normali file caricati dagli utenti.
+
+Successivamente, i documenti acquisiti vengono inseriti nella pipeline di elaborazione descritta nei capitoli precedenti. In particolare, Apache Tika viene utilizzato per estrarre automaticamente il contenuto testuale degli allegati, indipendentemente dal formato del file. Il testo ottenuto può quindi essere utilizzato sia per l’indicizzazione nel motore di ricerca sia per le funzionalità di classificazione automatica tramite agente AI.
+
+Questo approccio consente di trasformare la posta elettronica in un canale di acquisizione documentale completamente integrato con il sistema, riducendo le operazioni manuali richieste agli utenti e migliorando l’automazione dell’intero flusso di gestione dei documenti.
+
+L’elaborazione viene eseguita in modo asincrono tramite componenti separati e code di elaborazione, così da mantenere indipendenti le operazioni di polling delle email, archiviazione dei file, estrazione del testo e classificazione automatica. Questa suddivisione permette di scalare separatamente le diverse componenti del sistema e garantire una maggiore affidabilità anche in presenza di elevati volumi di documenti o allegati email.
 
 ## Test di carico
