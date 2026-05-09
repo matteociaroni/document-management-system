@@ -157,10 +157,21 @@ services:
     volumes:
       - opensearch_data:/usr/share/opensearch/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      test: [ "CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1" ]
       interval: 15s
       timeout: 10s
       retries: 5
+  # opensearch-dashboards:
+  #   image: opensearchproject/opensearch-dashboards:2.18.0
+  #   container_name: opensearch-dashboards
+  #   ports:
+  #     - "5601:5601"
+  #   environment:
+  #     - OPENSEARCH_HOSTS=["http://opensearch:9200"]
+  #     - DISABLE_SECURITY_DASHBOARDS_PLUGIN=true
+  #   depends_on:
+  #     opensearch:
+  #       condition: service_healthy
 
   # adminer:
   #   image: adminer
