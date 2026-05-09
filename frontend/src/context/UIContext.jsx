@@ -32,7 +32,7 @@ export const UIProvider = ({ children }) => {
 
   // ── Background upload helpers ──────────────────────────────────────
 
-  const startUploadTask = useCallback((totalFiles) => {
+  const startUploadTask = useCallback((totalFiles, { indeterminate = false } = {}) => {
     const controller = new AbortController();
     abortRef.current = controller;
     setUploadTask({
@@ -41,6 +41,7 @@ export const UIProvider = ({ children }) => {
       errors: 0,
       currentFile: '',
       active: true,
+      indeterminate,
     });
     return controller;
   }, []);

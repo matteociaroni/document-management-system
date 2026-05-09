@@ -28,6 +28,7 @@ from urllib.parse import urlparse
 from uuid import UUID
 
 from opensearchpy import OpenSearch, NotFoundError as OSNotFoundError
+from sentence_transformers import SentenceTransformer
 from sqlalchemy.orm import Session
 
 from config import settings
@@ -47,6 +48,11 @@ logger = logging.getLogger("agent_worker")
 # ── OpenSearch helpers ──────────────────────────────────────────────────────
 
 OPENSEARCH_INDEX_MAPPING = {
+    "settings": {
+        "index": {
+            "knn": True,
+        }
+    },
     "mappings": {
         "properties": {
             "document_id": {"type": "keyword"},
@@ -58,10 +64,42 @@ OPENSEARCH_INDEX_MAPPING = {
             },
             "mime_type":   {"type": "keyword"},
             "text":        {"type": "text", "analyzer": "standard"},
+            "embedding": {
+                "type": "knn_vector",
+                "dimension": settings.embedding_dimension,
+                "method": {
+                    "name": "hnsw",
+                    "space_type": "cosinesimil",
+                    "engine": "lucene",
+                },
+            },
             "created_at":  {"type": "date"},
         }
     }
 }
+
+_embed_model: SentenceTransformer | None = None
+
+
+def _get_embed_model() -> SentenceTransformer:
+    global _embed_model
+    if _embed_model is None:
+        logger.info("Loading embedding model '%s'", settings.embedding_model_name)
+        _embed_model = SentenceTransformer(settings.embedding_model_name)
+    return _embed_model
+
+
+def _embed_text(text: str | None) -> list[float] | None:
+    """Encode text into a normalized 384-dim vector for k-NN search.
+
+    paraphrase-multilingual-MiniLM-L12-v2 truncates inputs at 128 tokens (~500
+    chars), so we hand it a leading slice rather than the full document.
+    """
+    if not text:
+        return None
+    snippet = text[: settings.embedding_max_chars]
+    vector = _get_embed_model().encode(snippet, normalize_embeddings=True)
+    return vector.tolist()
 
 # Set of index names already confirmed to exist (avoids repeated HEAD calls).
 _existing_indices: set[str] = set()
@@ -111,6 +149,8 @@ def _index_in_opensearch(
     index_name = _get_index_name(owner_id)
     _ensure_index(client, index_name)
 
+    embedding = _embed_text(text)
+
     body = {
         "document_id": str(document_id),
         "owner_id": str(owner_id),
@@ -118,13 +158,14 @@ def _index_in_opensearch(
         "filename": filename,
         "mime_type": mime_type,
         "text": text,
+        "embedding": embedding,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
 
     client.index(index=index_name, id=str(document_id), body=body)
     logger.info(
-        "Indexed document %s ('%s', %s chars) in %s",
-        document_id, filename, len(text) if text else 0, index_name,
+        "Indexed document %s ('%s', %s chars, embedded=%s) in %s",
+        document_id, filename, len(text) if text else 0, embedding is not None, index_name,
     )
 
 
@@ -573,6 +614,8 @@ def run_worker() -> None:
     # Create OpenSearch client
     os_client = _get_opensearch_client()
     logger.info("OpenSearch client connected to %s", settings.opensearch_url)
+
+    _get_embed_model()
 
     while True:
         db: Session = SessionLocal()

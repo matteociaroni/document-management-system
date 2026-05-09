@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     auto_file_threshold: float = 0.85
 
     opensearch_url: str = "http://opensearch:9200"
+    embedding_model_name: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    embedding_dimension: int = 384
+    embedding_max_chars: int = 2000
 
     model_config = SettingsConfigDict(
         env_file=(".env", "../.env"),

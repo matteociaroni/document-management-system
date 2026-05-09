@@ -10,6 +10,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 from opensearchpy import OpenSearch, NotFoundError as OSNotFoundError
 from pydantic import BaseModel
+from sentence_transformers import SentenceTransformer
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
@@ -41,6 +42,31 @@ def _get_client() -> OpenSearch:
 def _get_index_name(owner_id) -> str:
     """Per-tenant index name: documents_<uuid_without_hyphens>."""
     return f"documents_{str(owner_id).replace('-', '')}"
+
+
+# ── Embedding helpers ───────────────────────────────────────────────────────
+
+_embed_model: Optional[SentenceTransformer] = None
+
+
+def _get_embed_model() -> SentenceTransformer:
+    global _embed_model
+    if _embed_model is None:
+        logger.info("Loading embedding model '%s'", settings.embedding_model_name)
+        _embed_model = SentenceTransformer(settings.embedding_model_name)
+    return _embed_model
+
+
+def _embed_query(text: str) -> Optional[List[float]]:
+    if not text:
+        return None
+    try:
+        snippet = text[: settings.embedding_max_chars]
+        vector = _get_embed_model().encode(snippet, normalize_embeddings=True)
+        return vector.tolist()
+    except Exception as e:
+        logger.warning("Query embedding failed: %s", e)
+        return None
 
 
 # ── Response schemas ────────────────────────────────────────────────────────
@@ -137,28 +163,41 @@ def search_documents(
     index_name = _get_index_name(user.id)
 
     if client.indices.exists(index=index_name):
+        should_clauses = [
+            {
+                "multi_match": {
+                    "query": q,
+                    "fields": ["text", "filename^2"],
+                    "type": "best_fields",
+                    "fuzziness": "AUTO",
+                }
+            },
+            {
+                "wildcard": {
+                    "filename.keyword": {
+                        "value": f"*{q}*",
+                        "case_insensitive": True,
+                        "boost": 2.0,
+                    }
+                }
+            },
+        ]
+
+        query_vector = _embed_query(q)
+        if query_vector is not None:
+            should_clauses.append({
+                "knn": {
+                    "embedding": {
+                        "vector": query_vector,
+                        "k": settings.knn_candidates,
+                    }
+                }
+            })
+
         body = {
             "query": {
                 "bool": {
-                    "should": [
-                        {
-                            "multi_match": {
-                                "query": q,
-                                "fields": ["text", "filename^2"],
-                                "type": "best_fields",
-                                "fuzziness": "AUTO",
-                            }
-                        },
-                        {
-                            "wildcard": {
-                                "filename.keyword": {
-                                    "value": f"*{q}*",
-                                    "case_insensitive": True,
-                                    "boost": 2.0,
-                                }
-                            }
-                        },
-                    ],
+                    "should": should_clauses,
                     "minimum_should_match": 1,
                 }
             },

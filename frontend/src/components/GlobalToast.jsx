@@ -22,16 +22,20 @@ const GlobalToast = () => {
                     ? 'Caricamento parziale'
                     : 'Caricamento completato'}
               </span>
-              <span className="toast-upload-count">
-                {uploadTask.completed}/{uploadTask.total}
-              </span>
+              {!uploadTask.indeterminate && (
+                <span className="toast-upload-count">
+                  {uploadTask.completed}/{uploadTask.total}
+                </span>
+              )}
             </div>
-            <div className="toast-upload-progress-bar">
-              <div
-                className="toast-upload-progress-fill"
-                style={{ width: `${uploadTask.total > 0 ? (uploadTask.completed / uploadTask.total) * 100 : 0}%` }}
-              />
-            </div>
+            {!uploadTask.indeterminate && (
+              <div className="toast-upload-progress-bar">
+                <div
+                  className="toast-upload-progress-fill"
+                  style={{ width: `${uploadTask.total > 0 ? (uploadTask.completed / uploadTask.total) * 100 : 0}%` }}
+                />
+              </div>
+            )}
             {uploadTask.active && uploadTask.currentFile && (
               <div className="toast-upload-filename" title={uploadTask.currentFile}>
                 {uploadTask.currentFile}

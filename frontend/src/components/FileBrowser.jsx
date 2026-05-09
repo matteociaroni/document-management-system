@@ -113,15 +113,17 @@ export default function FileBrowser({ view, onNavigate, initialFolder }) {
     input.type = 'file';
     input.onchange = async (e) => {
       if (e.target.files && e.target.files[0]) {
-        setGlobalLoading(true, "Caricamento file in corso...");
+        const file = e.target.files[0];
+        const controller = startUploadTask(1, { indeterminate: true });
+        updateUploadProgress(0, file.name);
         try {
-          await api.uploadDocument(e.target.files[0], currentFolderId);
+          await api.uploadDocument(file, currentFolderId, { signal: controller.signal });
           addToast("File caricato con successo", "success");
           fetchItems();
         } catch (err) {
           addToast(`Errore durante il caricamento: ${err.message}`, "error");
         } finally {
-          setGlobalLoading(false);
+          finishUploadTask();
         }
       }
     };
@@ -134,7 +136,8 @@ export default function FileBrowser({ view, onNavigate, initialFolder }) {
     input.onchange = async (e) => {
       if (e.target.files && e.target.files[0]) {
         const file = e.target.files[0];
-        setGlobalLoading(true, "Upload con AI in corso...");
+        startUploadTask(1, { indeterminate: true });
+        updateUploadProgress(0, file.name);
         try {
           await api.uploadDocumentWithAI(file);
           addToast(
@@ -146,7 +149,7 @@ export default function FileBrowser({ view, onNavigate, initialFolder }) {
         } catch (err) {
           addToast(`Errore upload AI: ${err.message}`, "error");
         } finally {
-          setGlobalLoading(false);
+          finishUploadTask();
         }
       }
     };
@@ -300,15 +303,17 @@ export default function FileBrowser({ view, onNavigate, initialFolder }) {
       // ── Plain file drop ──
       const files = Array.from(e.dataTransfer.files);
       if (files.length === 1) {
-        setGlobalLoading(true, "Caricamento file in corso...");
+        const file = files[0];
+        const controller = startUploadTask(1, { indeterminate: true });
+        updateUploadProgress(0, file.name);
         try {
-          await api.uploadDocument(files[0], currentFolderId);
+          await api.uploadDocument(file, currentFolderId, { signal: controller.signal });
           addToast("File caricato con successo", "success");
           fetchItems();
         } catch (err) {
           addToast(`Errore durante il caricamento: ${err.message}`, "error");
         } finally {
-          setGlobalLoading(false);
+          finishUploadTask();
         }
       } else if (files.length > 1) {
         const controller = startUploadTask(files.length);

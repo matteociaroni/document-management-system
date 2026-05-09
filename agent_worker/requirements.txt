@@ -8,3 +8,4 @@ pydantic-settings==2.13.1
 boto3==1.28.85
 httpx==0.28.1
 opensearch-py==2.8.0
+sentence-transformers==3.0.1

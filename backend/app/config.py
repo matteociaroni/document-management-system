@@ -29,7 +29,12 @@ class Settings(BaseSettings):
 
     # OpenSearch
     opensearch_url: str = "http://opensearch:9200"
-    
+
+    # Embeddings
+    embedding_model_name: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    embedding_max_chars: int = 2000
+    knn_candidates: int = 20
+
     class Config:
         env_file = ".env"
 
