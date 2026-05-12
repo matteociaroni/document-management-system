@@ -1,0 +1,83 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: opensearch
+  namespace: dms
+spec:
+  clusterIP: None
+  selector:
+    app: opensearch
+  ports:
+    - name: http
+      port: 9200
+      targetPort: 9200
+    - name: transport
+      port: 9300
+      targetPort: 9300
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: opensearch
+  namespace: dms
+spec:
+  serviceName: opensearch
+  replicas: 1
+  selector:
+    matchLabels:
+      app: opensearch
+  template:
+    metadata:
+      labels:
+        app: opensearch
+    spec:
+      # OpenSearch ha bisogno di vm.max_map_count alto sul nodo host.
+      # Su k3s/Ubuntu lancia sui worker:
+      #   echo 'vm.max_map_count=262144' | sudo tee /etc/sysctl.d/99-opensearch.conf
+      #   sudo sysctl --system
+      initContainers:
+        - name: fix-permissions
+          image: busybox:1.36
+          command: ["sh", "-c", "chown -R 1000:1000 /usr/share/opensearch/data"]
+          volumeMounts:
+            - name: data
+              mountPath: /usr/share/opensearch/data
+          securityContext:
+            runAsUser: 0
+      containers:
+        - name: opensearch
+          image: opensearchproject/opensearch:2.18.0
+          ports:
+            - containerPort: 9200
+            - containerPort: 9300
+          env:
+            - name: discovery.type
+              value: single-node
+            - name: plugins.security.disabled
+              value: "true"
+            - name: OPENSEARCH_INITIAL_ADMIN_PASSWORD
+              value: "MyStr0ng!Pass"
+            - name: OPENSEARCH_JAVA_OPTS
+              value: "-Xms512m -Xmx512m"
+          volumeMounts:
+            - name: data
+              mountPath: /usr/share/opensearch/data
+          readinessProbe:
+            httpGet:
+              path: /_cluster/health
+              port: 9200
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeout: 10
+          resources:
+            requests: { cpu: "200m", memory: "1Gi" }
+            limits: { cpu: "2000m", memory: "2Gi" }
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: longhorn
+        resources:
+          requests:
+            storage: 20Gi

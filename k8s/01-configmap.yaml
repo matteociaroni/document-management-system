@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dms-config
+  namespace: dms
+data:
+  # Endpoints interni (DNS k8s)
+  S3_ENDPOINT: "http://seaweedfs-s3:8333"
+  OPENSEARCH_URL: "http://opensearch:9200"
+  MCP_SERVER_URL: "http://mcp-server:8001/sse"
+
+  # AI / Embedding
+  MODEL_NAME: "gemini-2.5-pro"
+  BASE_URL: "https://mycustomdomain1479.com"
+  EMBEDDING_MODEL_NAME: "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"

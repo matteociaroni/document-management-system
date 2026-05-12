@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-server
+  namespace: dms
+spec:
+  selector:
+    app: mcp-server
+  ports:
+    - port: 8001
+      targetPort: 8001
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-server
+  namespace: dms
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mcp-server
+  template:
+    metadata:
+      labels:
+        app: mcp-server
+    spec:
+      containers:
+        - name: mcp-server
+          image: REGISTRY/dms-mcp-server:TAG  # da sostituire
+          ports:
+            - containerPort: 8001
+          env:
+            - name: DATABASE_URL
+              value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)"
+            - name: POSTGRES_USER
+              valueFrom: { secretKeyRef: { name: dms-secrets, key: POSTGRES_USER } }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: dms-secrets, key: POSTGRES_PASSWORD } }
+            - name: POSTGRES_DB
+              valueFrom: { secretKeyRef: { name: dms-secrets, key: POSTGRES_DB } }

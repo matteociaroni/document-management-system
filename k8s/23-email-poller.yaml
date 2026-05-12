@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: email-poller
+  namespace: dms
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: email-poller
+  template:
+    metadata:
+      labels:
+        app: email-poller
+    spec:
+      initContainers:
+        - name: wait-postgres
+          image: busybox:1.36
+          command: ["sh", "-c", "until nc -z postgres 5432; do sleep 2; done"]
+      containers:
+        - name: email-poller
+          image: REGISTRY/dms-email-poller:TAG  # da sostituire
+          envFrom:
+            - configMapRef: { name: dms-config }
+            - secretRef: { name: dms-secrets }
+          env:
+            - name: DATABASE_URL
+              value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)"
