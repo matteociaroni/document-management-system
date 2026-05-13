@@ -1,0 +1,119 @@
+\chapter{Osservabilit\`a e monitoring}
+\label{chap:observability}
+
+\section{Strategia di osservabilit\`a}
+\label{sec:observability_strategy}
+
+La piattaforma espone tre canali di telemetria complementari, che coprono livelli
+differenti di granularit\`a:
+
+\begin{enumerate}[leftmargin=*]
+    \item \textbf{Log strutturati} (livello infrastrutturale): emessi in stdout da ogni
+          container, aggregabili da qualsiasi stack di log management.
+    \item \textbf{Health endpoint} (livello servizio): probe attivo per Kubernetes.
+    \item \textbf{Agent operations log} (livello applicativo/agentico): audit trail
+          persistente delle decisioni dell'agente.
+\end{enumerate}
+
+\section{Log strutturati}
+\label{sec:logging}
+
+Tutti i microservizi emettono log in stdout con il formato:
+\begin{verbatim}
+%(asctime)s [%(levelname)s] %(name)s: %(message)s
+\end{verbatim}
+
+Questo formato \`e conforme alla convenzione \emph{12-factor app}: i log sono trattati
+come stream di eventi e possono essere raccolti da qualsiasi sistema di aggregazione
+(Loki, Elasticsearch, CloudWatch, ecc.) senza configurazione applicativa.
+
+Gli eventi significativi loggati includono:
+
+\begin{itemize}[leftmargin=*]
+    \item \textbf{email\_poller}: inizio e fine di ogni ciclo di polling, numero di
+          account elaborati, UID massimo ricevuto, eccezioni per account.
+    \item \textbf{agent\_worker}: avvio del loop, job/file presi in carico, risultati
+          di Tika, nome dell'indice OpenSearch creato, decisioni dell'agente,
+          errori con stacktrace completo.
+    \item \textbf{mcp\_server}: ogni tool call con \texttt{user\_id}, \texttt{parent\_id}
+          e numero di risultati restituiti.
+    \item \textbf{backend}: richieste HTTP (via Uvicorn access log), errori di
+          validazione, eccezioni non gestite.
+\end{itemize}
+
+\section{Health check endpoint}
+\label{sec:health}
+
+L'endpoint \texttt{GET /health} esegue due verifiche attive:
+
+\begin{enumerate}[leftmargin=*]
+    \item \textbf{Database}: \texttt{SELECT 1} tramite la sessione SQLAlchemy.
+          Fallimento $\rightarrow$ \texttt{status: "unhealthy"}, HTTP 503.
+    \item \textbf{S3}: creazione del client boto3.
+          Fallimento $\rightarrow$ \texttt{s3: "error"} ma \texttt{status: "healthy"},
+          HTTP 200. Questa asimmetria riflette l'impatto reale: il read path dei
+          metadati rimane funzionante anche senza S3.
+\end{enumerate}
+
+L'endpoint \`e progettato per essere utilizzato direttamente come:
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Kubernetes liveness probe}: il container viene riavviato se restituisce
+          503 continuativamente.
+    \item \textbf{Kubernetes readiness probe}: il container viene rimosso dal load
+          balancer durante la fase di startup o di recovery del database.
+\end{itemize}
+
+\section{Agent Operations Log (audit trail agentico)}
+\label{sec:audit_log}
+
+La tabella \texttt{agent\_operations} costituisce il registro immutabile di ogni azione
+intrapresa dall'agente. \`E esposta all'endpoint \texttt{GET /agent/operations} e
+visualizzata nella \emph{Agent History view} del frontend.
+
+Ogni record contiene:
+\begin{itemize}[leftmargin=*]
+    \item \texttt{operation\_type}: tipo di evento in un insieme chiuso
+          (\texttt{email\_received}, \texttt{attachment\_extracted}, \texttt{auto\_filed},
+          \texttt{sent\_to\_inbox}, \texttt{duplicate\_skipped},
+          \texttt{manual\_upload\_received}, \texttt{error}).
+    \item \texttt{description}: testo human-readable dell'operazione.
+    \item \texttt{details} (JSONB): metadati strutturati specifici per tipo di evento
+          (es.\ \texttt{folder\_id}, \texttt{confidence}, \texttt{sender}).
+    \item \texttt{job\_id} e \texttt{agent\_file\_id}: riferimenti che permettono
+          la tracciabilit\`a completa dall'email originale alla decisione finale.
+\end{itemize}
+
+La presenza dell'\texttt{eml\_storage\_key} nel job referenziato permette il
+\textbf{replay forensico}: a partire dal file \texttt{.eml} originale \`e sempre
+possibile ricostruire il contesto in cui una decisione \`e stata presa, soddisfacendo
+il requisito di auditabilit\`a delle linee guida.
+
+\section{Frontend Transparency Layer}
+\label{sec:transparency}
+
+La \emph{Agent History view} sul frontend costituisce il \emph{transparency plane}: una
+timeline continua che distingue visivamente le azioni umane (\texttt{history}) da quelle
+agentiche (\texttt{agent\_operations}). I badge sulle cartelle modificate dall'agente
+offrono una notifica leggera senza richiedere un canale push dedicato.
+
+La \emph{Inbox view} espone le proposte in attesa con il reasoning testuale dell'agente
+(\texttt{agent\_reasoning}), rendendo trasparente all'utente il processo decisionale
+del sistema.
+
+\section{Metriche e dashboard}
+\label{sec:metrics}
+
+\TODO{Questa sezione descriver\`a l'integrazione con Prometheus per la raccolta di
+metriche operative (latenza per endpoint, throughput di job/min, tasso di auto-filing,
+tasso di errori per componente) e con Grafana per la visualizzazione. Includer\`a
+dashboard per: (1) salute dei microservizi, (2) pipeline agentica (job in pending/processing,
+classificazioni per ora, distribuzione delle confidence), (3) performance OpenSearch
+(latenza query, dimensione indici per tenant).}
+
+\section{Distributed tracing}
+\label{sec:tracing}
+
+\TODO{Integrazione OpenTelemetry per il tracciamento delle richieste attraverso i
+microservizi. Gli span tracceranno il percorso completo da email ricevuta a documento
+archiviato, con attributi per ogni step della pipeline (Tika latency, LLM latency,
+OpenSearch indexing latency). L'exporter sar\`a configurato verso Jaeger o Tempo.}

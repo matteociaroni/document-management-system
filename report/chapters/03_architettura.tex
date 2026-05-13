@@ -1,0 +1,211 @@
+\chapter{Architettura del sistema}
+\label{chap:architettura}
+
+\section{Visione d'insieme}
+\label{sec:visione_insieme}
+
+Il sistema adotta un'architettura a microservizi disaccoppiati, orchestrati tramite
+\texttt{docker-compose} e progettati per essere portabili su Kubernetes senza modifiche
+significative al codice applicativo \TODO{aggiungere manifest Kubernetes quando implementati}.
+La separazione in componenti indipendenti persegue tre obiettivi:
+
+\begin{enumerate}[leftmargin=*]
+    \item \textbf{Fault isolation}: il fallimento di un singolo componente (e.g.\ il worker
+          di classificazione) non causa il collasso dell'intero sistema.
+    \item \textbf{Scaling indipendente}: le componenti con diverso profilo di carico
+          (es.\ backend sincrono vs.\ worker asincrono) possono essere replicate
+          separatamente.
+    \item \textbf{Chiarezza dei confini}: ogni microservizio ha una responsabilit\`a
+          unica e ben delimitata, favorendo la manutenibilit\`a e il testing.
+\end{enumerate}
+
+La Figura~\ref{fig:architecture} mostra i componenti e i principali flussi di dati.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  node distance=0.9cm and 1.4cm,
+  every node/.style={font=\small\sffamily},
+  service/.style={rectangle, rounded corners=2pt, draw=black!70, fill=blue!8,
+                  minimum width=2.6cm, minimum height=0.9cm, align=center},
+  store/.style={cylinder, shape border rotate=90, aspect=0.25, draw=black!70,
+                fill=orange!12, minimum width=2.4cm, minimum height=1.0cm, align=center},
+  agent/.style={rectangle, rounded corners=2pt, draw=black!70, fill=green!10,
+                minimum width=2.6cm, minimum height=0.9cm, align=center},
+  external/.style={rectangle, draw=black!70, dashed, fill=gray!8,
+                   minimum width=2.4cm, minimum height=0.8cm, align=center},
+  arrow/.style={-{Stealth[length=2.2mm]}, thick, draw=black!70}
+]
+
+\node[external] (user) {Utente \\ (browser)};
+\node[external, below=1.8cm of user] (mailsrv) {IMAP \\ provider};
+\node[external, right=8.0cm of user] (llm) {LLM API};
+
+\node[service, right=2.0cm of user] (frontend) {Frontend \\ React/Vite};
+\node[service, right=of frontend] (backend) {Backend \\ FastAPI};
+
+\node[store, below=of backend] (pg) {PostgreSQL};
+\node[store, right=of pg] (s3) {SeaweedFS \\ (S3)};
+
+\node[service, below=2.2cm of frontend] (poller) {Email Poller};
+\node[agent, right=of s3] (mcp) {MCP Server};
+\node[agent, above=of mcp] (worker) {Agent Worker \\ (Atomic Agents)};
+
+\draw[arrow] (user) -- (frontend);
+\draw[arrow] (frontend) -- node[above]{REST/JWT} (backend);
+\draw[arrow] (backend) -- (pg);
+\draw[arrow] (backend) -- (s3);
+
+\draw[arrow] (mailsrv) -- node[left,pos=0.6]{IMAP/TLS} (poller);
+\draw[arrow] (poller) -- (pg);
+\draw[arrow] (poller) -- (s3);
+
+\draw[arrow] (worker) -- node[right,pos=0.4]{poll \texttt{pending}} (pg);
+\draw[arrow] (worker) -- (s3);
+\draw[arrow] (worker) -- node[above]{SSE} (mcp);
+\draw[arrow] (mcp) -- (pg);
+\draw[arrow] (worker) to[bend left=20] node[above,sloped]{HTTPS} (llm);
+
+\end{tikzpicture}
+\caption{Vista architetturale. Componenti in blu: servizi sincroni di front-office.
+         Componenti in verde: piano agentico. Componenti in arancio: piani di stato
+         durevole. Componenti tratteggiati: sistemi esterni.}
+\label{fig:architecture}
+\end{figure}
+
+\section{Descrizione dei componenti}
+\label{sec:componenti}
+
+\begin{description}[leftmargin=*]
+    \item[Frontend (\texttt{frontend/})] Applicazione \textsc{SPA} basata su React e Vite.
+          Serve la UI, gestisce token JWT con verifica di scadenza lato client, e implementa
+          la timeline ``Agent History'' che distingue visivamente le azioni umane da quelle
+          agentiche. Viene servita da un container Nginx prodotto da una build multi-stage Docker.
+
+    \item[Backend (\texttt{backend/})] API REST in \textsc{FastAPI} (Python $\geq$3.9) con
+          \textsc{SQLAlchemy 2} su driver \textsc{psycopg3}. Espone undici router:
+          \texttt{auth}, \texttt{folders}, \texttt{documents}, \texttt{permissions},
+          \texttt{history}, \texttt{admin}, \texttt{branding}, \texttt{email-accounts},
+          \texttt{agent}, \texttt{search}, \texttt{health}. Gestisce autenticazione JWT,
+          validazione degli input tramite Pydantic v2, generazione di presigned URL S3,
+          e il debounce delle scritture di \texttt{last\_active\_at} tramite
+          \texttt{LastActiveMiddleware}.
+
+    \item[Email Poller (\texttt{email\_poller/})] Worker Python che, ogni
+          \texttt{POLL\_INTERVAL\_SECONDS} (default 60\,s), seleziona gli account email
+          dovuti, si connette tramite IMAP/TLS, recupera i messaggi con UID superiore al
+          watermark \texttt{last\_uid}, salva il file \texttt{.eml} su SeaweedFS e crea
+          i job in stato \texttt{pending} per l'agent worker. Le credenziali IMAP sono
+          cifrate a riposo con \textsc{Fernet}.
+
+    \item[Agent Worker (\texttt{agent\_worker/})] Consumer asincrono dei job: scarica il
+          \texttt{.eml} dall'object storage, lo parsa estraendo corpo e allegati, invoca
+          Apache Tika per l'estrazione testuale, indicizza in OpenSearch e infine chiama
+          l'agente Atomic Agents con structured output Pydantic per la classificazione.
+          Gestisce anche i caricamenti manuali con AI (flag \texttt{needs\_classification}).
+
+    \item[MCP Server (\texttt{mcp\_server/})] Espone in modalit\`a strettamente
+          \emph{read-only} gli strumenti \texttt{list\_folders}, \texttt{list\_documents}
+          e \texttt{get\_folder} tramite il protocollo MCP via \emph{Server-Sent Events}
+          (porta 8001). Accede direttamente a PostgreSQL senza richiedere autenticazione
+          JWT, essendo un servizio interno non esposto all'esterno.
+
+    \item[Apache Tika (\texttt{tika})] Container \texttt{apache/tika:latest} che espone
+          un'API REST per l'estrazione di testo da documenti binari (PDF, DOCX, XLSX, ecc.).
+          Utilizzato dall'agent worker con timeout di 30\,s per prevenire hang su file corrotti.
+
+    \item[PostgreSQL (\texttt{postgres:16})] Piano dei metadati: utenti, documenti, cartelle,
+          permessi, job email, allegati agentici, operazioni dell'agente. Utilizza l'estensione
+          \texttt{pgcrypto} per la generazione di UUID. Lo schema iniziale \`e applicato
+          automaticamente da \texttt{init.sql} al primo avvio.
+
+    \item[SeaweedFS] Object store S3-compatibile composto da master, volume server, filer
+          e S3 gateway (porta 8333). Un singolo bucket \texttt{dms-storage} contiene sia
+          i file degli utenti (organizzati per tenant) sia i file \texttt{.eml} grezzi.
+
+    \item[OpenSearch (\texttt{opensearch:2.18.0})] \TODO{attualmente commentato in
+          docker-compose; da abilitare per il deployment completo} Motore di ricerca
+          full-text e vettoriale. Utilizzato dall'agent worker per indicizzare i testi
+          estratti e dal backend per servire le query di ricerca.
+\end{description}
+
+\section{Startup order e dipendenze}
+\label{sec:startup_order}
+
+L'ordinamento di avvio dei container \`e dichiarato nel \texttt{docker-compose.yml}
+tramite la direttiva \texttt{depends\_on} con \texttt{condition}:
+
+\begin{itemize}[leftmargin=*]
+    \item \textbf{postgres}: espone un \emph{healthcheck} basato su \texttt{pg\_isready}
+          (ogni 10\,s, 5 tentativi, timeout 5\,s). Tutti gli altri servizi che accedono
+          al database attendono \texttt{service\_healthy}.
+    \item \textbf{mcp\_server} e \textbf{tika}: attendono \texttt{service\_started}
+          (porta in ascolto) prima che l'agent worker venga avviato.
+    \item \textbf{backend}: attende \texttt{service\_healthy} di postgres.
+    \item \textbf{frontend}: attende \texttt{service\_started} del backend.
+\end{itemize}
+
+\section{Multi-tenancy}
+\label{sec:multitenancy}
+
+Il modello multi-tenant \`e \emph{domain-derived}: il prefisso di storage \`e calcolato
+dal dominio dell'email dell'utente trasformando i punti in trattini
+(\texttt{mario@azienda.com} $\rightarrow$ \texttt{azienda-com}). Tale scelta garantisce:
+
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Isolamento naturale dei dati} su S3 senza un bucket per tenant, riducendo
+          la complessit\`a operativa.
+    \item \textbf{Cost attribution} semplice: il consumo S3 per tenant \`e direttamente
+          leggibile dal prefisso.
+    \item \textbf{Onboarding a zero-touch}: nessun provisioning manuale del tenant;
+          il primo utente del dominio diventa automaticamente \texttt{DOMAIN\_ADMIN}.
+\end{itemize}
+
+La condivisione di risorse tra utenti dello stesso tenant avviene esclusivamente tramite
+la tabella \texttt{permissions} con livelli \texttt{VIEWER} o \texttt{EDITOR}. La
+condivisione cross-tenant \`e vietata a livello applicativo.
+
+\section{Flusso di caricamento manuale (two-phase upload)}
+\label{sec:upload_flow}
+
+\begin{enumerate}[leftmargin=*]
+    \item L'utente invia \texttt{POST /documents/upload} con il file e l'ID cartella.
+    \item Il backend crea un record \texttt{Document} con \texttt{size\_bytes = NULL}
+          (stato non ancora finalizzato) e genera un \emph{presigned URL} S3 con
+          scadenza di 1~ora.
+    \item Il browser carica il file direttamente su SeaweedFS tramite HTTP PUT sul
+          presigned URL. Il dato binario non transita per il backend.
+    \item L'utente invia \texttt{POST /documents/\{id\}/confirm} con il \texttt{size\_bytes}
+          effettivo. Il backend finalizza il record rendendolo visibile nelle listing.
+\end{enumerate}
+
+Questo pattern elimina la classe di errori ``record orfano'': se il caricamento S3 fallisce,
+il record \texttt{Document} rimane con \texttt{size\_bytes = NULL} e pu\`o essere
+ripulito con una job di garbage collection.
+
+\section{Flusso di ingestione email (email $\rightarrow$ classificazione $\rightarrow$ archivio)}
+\label{sec:email_flow}
+
+\begin{enumerate}[leftmargin=*]
+    \item L'\textbf{email poller} si connette al server IMAP, recupera i messaggi con
+          UID superiore al watermark \texttt{last\_uid}, salva il file \texttt{.eml}
+          su SeaweedFS e crea un record \texttt{EmailJob(status='pending')}.
+    \item L'\textbf{agent worker}, al ciclo di polling successivo (ogni 30\,s), preleva
+          i job in stato \texttt{pending} (fino a 10 per ciclo), li marca come
+          \texttt{processing} e scarica il file \texttt{.eml}.
+    \item Il parser \texttt{eml\_parser} estrae il corpo dell'email e gli allegati,
+          producendo anteprime testuali per ciascun MIME type.
+    \item Per ogni allegato, Apache Tika estrae il testo completo che viene indicizzato
+          in OpenSearch tramite un embedding vettoriale a 384 dimensioni.
+    \item L'agente Atomic Agents riceve il contesto (soggetto email, mittente, corpo,
+          anteprima allegati) e la struttura delle cartelle (ottenuta via MCP) e produce
+          per ogni allegato una \texttt{AttachmentDecision} con \texttt{folder\_id},
+          \texttt{confidence} e \texttt{reasoning}.
+    \item Se \texttt{confidence $\geq$ 0.85} e \texttt{folder\_id} \`e un UUID valido
+          nel tree del tenant $\rightarrow$ \texttt{auto\_filed}: il documento viene
+          spostato nella cartella suggerita.
+    \item Altrimenti $\rightarrow$ \texttt{in\_inbox}: il documento resta accessibile
+          nell'\emph{Inbox view} come proposta per la revisione umana.
+    \item L'utente pu\`o \textbf{Accept} (conferma la proposta), \textbf{Move} (sceglie
+          una cartella diversa) o \textbf{Reject} (rigetta la classificazione).
+\end{enumerate}

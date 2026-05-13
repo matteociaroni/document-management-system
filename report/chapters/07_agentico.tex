@@ -1,0 +1,273 @@
+\chapter{Layer agentico e MCP}
+\label{chap:agentico}
+
+\section{Ruoli dell'agente}
+\label{sec:ruoli_agente}
+
+Il sistema realizza i seguenti ruoli operativi distinti, in linea con il requisito
+di almeno due responsabilit\`a agentiche separate:
+
+\begin{enumerate}[leftmargin=*]
+    \item \textbf{Content interpretation}: estrazione semantica dal corpo dell'email e
+          dagli allegati (PDF, DOCX, XLSX, testo semplice) tramite il parser
+          \texttt{eml\_parser} e Apache Tika.
+
+    \item \textbf{Document classification \& filing}: associazione di ogni allegato alla
+          cartella pi\`u appropriata dell'albero del tenant, accompagnata da
+          \texttt{confidence} (0.0--1.0) e \texttt{reasoning} testuale. Il risultato
+          pu\`o essere un'azione autonoma (\texttt{auto\_filed}) o una proposta
+          (\texttt{in\_inbox}).
+
+    \item \textbf{Operational summarisation}: produzione di descrizioni human-readable
+          e \emph{details} strutturati (JSONB) per ogni operazione, che alimentano
+          la timeline operativa visibile a utente e auditor.
+
+    \item \textbf{Escalation policy}: instradamento automatico all'\emph{inbox}
+          quando la confidenza non supera la soglia, con creazione di una proposta
+          reversibile per la revisione umana.
+
+    \item \TODO{Monitoring operativo del cluster Kubernetes tramite un secondo agente
+          connesso via MCP a metriche Prometheus e log Loki --- da implementare}
+\end{enumerate}
+
+\section{Perch\'e un agente e non un classificatore deterministico}
+\label{sec:perche_agente}
+
+La scelta di un componente agentico sopra un classificatore tradizionale
+(\emph{rule-based} o ML su feature ingegnerizzate) \`e motivata da tre osservazioni:
+
+\begin{itemize}[leftmargin=*]
+    \item \textbf{L'albero delle cartelle \`e idiosincratico al tenant e cambia nel tempo}:
+          un classificatore con etichette fisse richiederebbe ri-training continuo per
+          ogni cliente, con costi operativi insostenibili.
+    \item \textbf{Le evidenze disponibili sono eterogenee}: soggetto e corpo dell'email,
+          MIME type, nome file, anteprima testuale del documento. Gli LLM eccellono
+          nel ragionamento \emph{few-shot} su input miscellanei.
+    \item \textbf{Evolvibilit\`a zero-shot}: l'aggiunta di nuove cartelle non richiede
+          modifiche al codice. L'agente le scopre autonomamente via MCP alla successiva
+          invocazione.
+\end{itemize}
+
+La componente deterministica \`e comunque presente e irrinunciabile: estrazione
+attachment, hashing SHA-256, threshold di confidenza, validazione UUID, scrittura DB.
+Queste operazioni separano con nettezza il piano probabilistico dal piano deterministico.
+
+\section{Parsing degli allegati (\texttt{eml\_parser})}
+\label{sec:eml_parser}
+
+Il modulo \texttt{eml\_parser} estrae anteprime testuali controllate per ciascun MIME type:
+
+\begin{itemize}[leftmargin=*]
+    \item \textbf{PDF}: prime e ultime 2~pagine, cap di 1000~caratteri per lato con
+          separatore \texttt{[...]}. Ritorna \texttt{None} per PDF scansionati senza
+          testo estraibile (condizione che segnala all'agente di abbassare la confidenza).
+    \item \textbf{DOCX}: testa e coda di 1000~caratteri sul testo concatenato dei paragrafi.
+    \item \textbf{XLSX}: prime 30~righe di ogni foglio (max 3~fogli) come TSV, capate
+          a 2000~caratteri.
+    \item \textbf{Plain text}: primi 500~caratteri.
+\end{itemize}
+
+Questa logica \`e intenzionalmente \emph{conservativa}: l'agente vede solo un sottoinsieme
+deterministico, riproducibile e di dimensione bounded. Tale disciplina costituisce il
+primo livello di \emph{economic guardrail} (limite ai token in input).
+
+\section{Atomic Agents e structured output}
+\label{sec:atomic_agents}
+
+Il filing agent \`e implementato con il framework \textbf{Atomic Agents} e la libreria
+\textbf{instructor} come adattatore per forzare l'output del modello LLM a conformarsi
+allo schema Pydantic. Gli schema input/output sono:
+
+\begin{lstlisting}[language=Python, caption={Schema input e output del filing agent (\texttt{agent\_worker/agent.py}).}]
+class AttachmentInfo(BaseIOSchema):
+    filename: str
+    mime_type: str
+    size_bytes: int
+    text_preview: str | None
+
+class AttachmentDecision(BaseModel):
+    filename: str
+    folder_id: str | None  # UUID dalla folder tree, o null
+    confidence: float      # ge=0.0, le=1.0
+    reasoning: str
+
+class FilingInput(BaseIOSchema):
+    context_title: str           # soggetto email o nome file
+    context_source: str          # mittente o "(manual upload)"
+    context_description: str | None  # corpo email (max ~2000 char)
+    attachments: list[AttachmentInfo]
+
+class FilingOutput(BaseIOSchema):
+    decisions: list[AttachmentDecision]  # una per allegato
+\end{lstlisting}
+
+La constrained generation fornita da \texttt{instructor} trasforma l'output del modello
+in un \texttt{FilingOutput} validato. Risposte strutturalmente non conformi vengono
+scartate, eliminando la classe di errori da \emph{free-form text}.
+
+\subsection{System prompt}
+
+Il system prompt \`e strutturato in \texttt{background}, \texttt{steps} e
+\texttt{output\_instructions}, con la folder tree iniettata come
+\texttt{FolderTreeContextProvider}:
+
+\begin{lstlisting}[language=Python, caption={System prompt del filing agent (estratto da \texttt{agent.py}).}]
+SystemPromptGenerator(
+  background=[
+    "You are an expert document archivist for a DMS.",
+    "Your task is to classify email attachments and assign each one "
+    "to the most appropriate folder.",
+    "The available folder structure is provided in the context below.",
+  ],
+  steps=[
+    "Read the email subject, sender, and body to understand context.",
+    "Pay special attention to the email body: it often describes "
+    "what the attachments are about.",
+    "For each attachment, analyze filename, MIME type, size, and "
+    "any text preview.",
+    "If no folder is a good match, set folder_id to null.",
+    "Set confidence to 1.0 only if certain. Lower it for ambiguous cases.",
+  ],
+  output_instructions=[
+    "Return exactly one decision per attachment in 'decisions'.",
+    "folder_id must be a valid UUID from the folder tree, or null.",
+    "confidence must be a float between 0.0 and 1.0.",
+  ],
+  context_providers={"folders": FolderTreeContextProvider(folder_tree)},
+)
+\end{lstlisting}
+
+\section{Design del MCP Server}
+\label{sec:mcp_design}
+
+Il MCP server espone tre strumenti, raggruppati in due \emph{capability groups}:
+
+\begin{enumerate}[leftmargin=*]
+    \item \textbf{Folder structure inspection} (gruppo 1):
+          \texttt{list\_folders(user\_id, parent\_id?)},
+          \texttt{get\_folder(user\_id, folder\_id)}.
+    \item \textbf{Document inventory inspection} (gruppo 2):
+          \texttt{list\_documents(user\_id, folder\_id?)}.
+\end{enumerate}
+
+\begin{lstlisting}[language=Python, caption={Tool \texttt{list\_folders} del MCP server (\texttt{mcp\_server/server.py}).}]
+@mcp.tool()
+def list_folders(user_id: str, parent_id: str | None = None) -> list[dict]:
+    """List folders owned by user_id, root or sub-folders."""
+    db = SessionLocal()
+    try:
+        query = db.query(Folder).filter(Folder.owner_id == UUID(user_id))
+        if parent_id:
+            query = query.filter(Folder.parent_id == UUID(parent_id))
+        else:
+            query = query.filter(Folder.parent_id.is_(None))
+        folders = query.order_by(Folder.name).all()
+        return [{"id": str(f.id), "name": f.name,
+                 "parent_id": str(f.parent_id) if f.parent_id else None}
+                for f in folders]
+    finally:
+        db.close()
+\end{lstlisting}
+
+Tutti gli strumenti sono \textbf{strettamente read-only}. Non esiste nessun tool MCP
+di scrittura, eliminazione o spostamento. Ogni tool call \`e \emph{tenant-scoped}
+tramite il filtro \texttt{owner\_id}, impedendo che una prompt-injection induca
+l'agente a leggere dati di un altro tenant.
+
+Il server usa \textbf{FastMCP} con trasporto \textbf{Server-Sent Events} (SSE),
+esposto sulla porta 8001 e raggiungibile solo dall'agent worker sulla rete Docker interna.
+
+\section{Pre-fetch della folder tree}
+\label{sec:prefetch}
+
+L'agent worker pre-fetcha l'intera folder tree con \texttt{MCPClient.build\_folder\_tree}
+e la inietta nel system prompt come contesto statico prima di invocare l'LLM. La scelta
+del \emph{pre-fetch} (piuttosto che tool call iterativi durante l'inferenza) \`e motivata
+da:
+
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Determinismo}: l'agente vede una snapshot consistente dell'albero,
+          evitando race con creazioni di cartelle concorrenti.
+    \item \textbf{Prevedibilit\`a del costo}: il numero di token in input dipende solo
+          dalla dimensione dell'albero del tenant, condizione necessaria per imporre
+          un cost ceiling.
+    \item \textbf{Riduzione delle round-trip}: una sola materializzazione vs.\
+          $O(N)$ tool call durante l'inferenza.
+\end{itemize}
+
+\section{Pipeline di classificazione end-to-end}
+\label{sec:pipeline}
+
+Il modulo \texttt{agent\_worker/worker.py} implementa due pipeline parallele:
+
+\paragraph{Pipeline email.}
+Richiamata da \texttt{\_process\_job}: scarica \texttt{.eml} $\rightarrow$ parsa
+email ($\rightarrow$ estrae allegati $\rightarrow$ carica su S3 $\rightarrow$ crea
+\texttt{AgentFile}) $\rightarrow$ indica in OpenSearch $\rightarrow$ invoca LLM
+$\rightarrow$ decide auto\_filed o in\_inbox.
+
+\paragraph{Pipeline manual upload.}
+Richiamata da \texttt{\_process\_manual\_upload}: scarica il file da S3 $\rightarrow$
+Tika estrae il testo $\rightarrow$ indicizza in OpenSearch $\rightarrow$ se
+\texttt{needs\_classification = True}: invoca LLM $\rightarrow$ decide; altrimenti
+imposta status \texttt{indexed}.
+
+\begin{lstlisting}[language=Python, caption={Decisione auto-filing nel worker (\texttt{agent\_worker/worker.py}).}]
+folder_uuid = UUID(decision.folder_id) if decision.folder_id else None
+
+if folder_uuid and decision.confidence >= settings.auto_file_threshold:
+    agent_file.status = "auto_filed"
+    agent_file.auto_filed = True
+    doc.folder_id = folder_uuid
+    _log_op(db, user_id=user.id, op_type="auto_filed",
+            description=f"Archiviato automaticamente '{att.filename}' "
+                        f"(confidence: {decision.confidence:.0%})",
+            details={"folder_id": str(folder_uuid),
+                     "confidence": decision.confidence})
+else:
+    agent_file.status = "in_inbox"
+    _log_op(db, user_id=user.id, op_type="sent_to_inbox",
+            description=f"'{att.filename}' inviato in inbox per revisione "
+                        f"(confidence: {decision.confidence:.0%})")
+\end{lstlisting}
+
+\section{Indicizzazione in OpenSearch}
+\label{sec:opensearch_indexing}
+
+Ogni documento elaborato viene indicizzato in OpenSearch con il seguente mapping:
+
+\begin{lstlisting}[language=Python, caption={Mapping OpenSearch (\texttt{agent\_worker/worker.py}).}]
+OPENSEARCH_INDEX_MAPPING = {
+    "settings": {"index": {"knn": True}},
+    "mappings": {"properties": {
+        "document_id": {"type": "keyword"},
+        "owner_id":    {"type": "keyword"},
+        "folder_id":   {"type": "keyword"},
+        "filename":    {"type": "text",
+                        "fields": {"keyword": {"type": "keyword"}}},
+        "mime_type":   {"type": "keyword"},
+        "text":        {"type": "text", "analyzer": "standard"},
+        "embedding":   {"type": "knn_vector",
+                        "dimension": 384,
+                        "method": {"name": "hnsw",
+                                   "space_type": "cosinesimil",
+                                   "engine": "lucene"}},
+        "created_at":  {"type": "date"},
+    }}
+}
+\end{lstlisting}
+
+L'indice \`e \emph{per-tenant}: ogni utente ha il proprio indice
+\texttt{documents\_\{user\_id\_senza\_trattini\}}. Un cache in memoria
+(\texttt{\_existing\_indices: set[str]}) evita chiamate HEAD ripetute per verificarne
+l'esistenza.
+
+\section{Secondo agente: monitoring Kubernetes}
+\label{sec:secondo_agente}
+
+\TODO{Questa sezione descriver\`a il secondo agente agentico, responsabile del monitoring
+operativo del cluster Kubernetes. L'agente si connetterà via MCP a un secondo MCP server
+che espone tool read-only su metriche Prometheus (CPU, memoria, latenza per servizio) e
+log Loki. L'agente interpreterà anomalie, proporrà azioni di remediation e le sottoporrà
+all'operatore per approvazione. Nessuna azione distruttiva sarà automatizzata. Ogni
+proposta sarà loggata nell'audit trail.}

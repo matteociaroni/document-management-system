@@ -1,0 +1,217 @@
+\chapter{SLO, costi e Return on Agent}
+\label{chap:roi}
+
+\section{Service Level Objectives}
+\label{sec:slo}
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabularx}{\linewidth}{l X r}
+\toprule
+\textbf{SLO} & \textbf{Definizione} & \textbf{Target} \\
+\midrule
+Availability backend          & $(1 - \text{downtime}/\text{period})$ misurata su \texttt{/health}. & $\geq 99{,}5\%$ mensile \\
+Latenza P95 browse            & Risposta a \texttt{GET /folders} e \texttt{/documents}.             & $\leq 300$\,ms \\
+Latenza P95 download          & Tempo a primo byte di \texttt{/documents/\{id\}/download}.          & $\leq 800$\,ms \\
+Latenza filing end-to-end P95 & Da arrivo email a stato \texttt{done}.                              & $\leq 5$\,min \\
+Durabilit\`a documenti        & Probabilit\`a di perdita di un oggetto S3.                         & $\leq 10^{-9}$ annuo \\
+Auto-filing precision         & Quota di \texttt{auto\_filed} corretti su revisione campione.       & $\geq 95\%$ \\
+\bottomrule
+\end{tabularx}
+\caption{SLO proposti per la piattaforma IDms.}
+\label{tab:slo}
+\end{table}
+
+Un availability del $99{,}5\%$ su base mensile corrisponde a un massimo di circa
+3,6~ore di downtime/mese. La latenza P95 browse di 300\,ms \`e compatibile con
+PostgreSQL con connection pooling e indici copertura, senza richiedere una cache
+aggressiva.
+
+\section{Costo stimato di un'ora di downtime}
+\label{sec:costo_downtime}
+
+Stima per un cliente di medie dimensioni ($N = 200$ utenti, $\sim$\,1000
+documenti/giorno, picchi $\times 3$ a fine mese):
+
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Produttività persa}: $200$ utenti $\times 0{,}25$\,h/h di blocco
+          parziale $\times$ \euro$\,40$/h $=$ \textbf{\euro$\,2.000$/h}.
+    \item \textbf{Rischio pagamenti in ritardo}: in finestra fine mese,
+          ritardo medio $0{,}5$ fatture/h $\times$ \euro$\,150$ di penali medie
+          $=$ \textbf{\euro$\,75$/h} atteso (\emph{tail risk} molto pi\`u alto).
+    \item \textbf{SLA refund} (ipotesi $5\%$ del canone su violazione $> 1$~h):
+          \textbf{$\sim$\euro$\,200$--$500$/h} a seconda del contratto.
+\end{itemize}
+
+\textbf{Stima complessiva: \euro$\,2.300$--$3.000$ per ora di downtime.}
+
+\section{Investimento in resilienza giustificato}
+\label{sec:investimento_resilienza}
+
+La scelta di adottare \textbf{SeaweedFS in modalit\`a replicata} (volume server con
+replication factor $\geq 2$) \`e l'investimento di resilienza meglio giustificato
+dall'analisi economica. Il \emph{blast radius} di una perdita di blob S3 \`e
+\emph{l'intera storia documentale del tenant}, con impatto legale e fiscale diretto.
+Il costo aggiuntivo della replica ($\sim$\euro$\,40$/mese) \`e di ordini di grandezza
+inferiore al costo atteso di una singola perdita di documento contrattuale.
+
+\section{Costo operativo mensile (CAPEX/OPEX)}
+\label{sec:costi_opex}
+
+\subsection{CAPEX (one-off)}
+
+Sviluppo iniziale e onboarding: $\sim$\euro$\,80.000$ (4~FTE $\times$ 2,5~mesi
+a \euro$\,8.000$/mese), spese di setup infrastruttura e configurazione incluse.
+
+\subsection{OPEX mensile stimato}
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabularx}{\linewidth}{l X r}
+\toprule
+\textbf{Voce} & \textbf{Note} & \textbf{Stima (\euro/mese)} \\
+\midrule
+Compute (3 nodi VM)              & Backend, worker, poller, mcp.          & 180 \\
+PostgreSQL managed (HA, backup)  & 2\,vCPU, 8\,GB RAM, 1 replica.        & 200 \\
+Object storage SeaweedFS         & 500\,GB, replication factor 2.         & 80 \\
+Egress di rete                   & $\sim$\,500\,GB/mese.                  & 40 \\
+LLM inference (filing)           & Cfr.\ Sezione~\ref{sec:agent_cost}.     & 300 \\
+OpenSearch                       & Cluster 2 nodi, 8\,GB RAM/nodo.        & 120 \\
+Monitoring/alerting              & Stack open-source self-hosted (Grafana).& 50 \\
+Backup off-site                  & Snapshot DB + S3.                      & 30 \\
+\midrule
+\textbf{Totale OPEX}             &                                        & \textbf{$\sim$\euro$\,1.000$/mese} \\
+\bottomrule
+\end{tabularx}
+\caption{Stima OPEX mensile per un singolo tenant medio.}
+\label{tab:opex}
+\end{table}
+
+\section{Cost ceiling dell'agente}
+\label{sec:agent_cost}
+
+Sia $T$ il numero medio di token consumati per un job di filing ($\sim 4.000$ token
+di input, comprensivo di system prompt e folder tree, $+ 300$ token di output).
+Con un volume di $1.000$ job/giorno e un costo integrato di
+$\sim$\euro$\,0{,}002$ per $1.000$ token (modello mid-range), la spesa giornaliera
+attesa risulta $\sim$\euro$\,8{,}6$.
+
+Il \textbf{cost ceiling} \`e fissato a \textbf{\euro$\,15$/giorno per tenant medio}
+(margine $\sim 75\%$). I guardrail che lo garantiscono strutturalmente sono:
+\begin{enumerate}[leftmargin=*]
+    \item Anteprime testuali capped (Sezione~\ref{sec:eml_parser}): limita i token
+          in input indipendentemente dalla dimensione del documento.
+    \item Batch size di 10~job/ciclo: limita il tasso di inferenze.
+    \item No-retry automatico: un job fallito non consuma ulteriori token.
+    \item Structured output con \texttt{instructor}: non genera rigenerazioni
+          indefinite.
+    \item Polling adattivo: per utenti inattivi la frequenza scende a 24~h.
+\end{enumerate}
+
+\section{Trade-off costo vs.\ affidabilit\`a}
+\label{sec:tradeoff_cost}
+
+La scelta di \textbf{non introdurre una cache aggressiva} (es.\ Redis) sui metadati
+frequenti riduce i costi infrastrutturali (\euro$\,40$--$80$/mese risparmiati) e la
+complessit\`a operativa, al prezzo di una latenza P95 browse nominalmente pi\`u alta.
+La decisione \`e giustificata dal profilo di carico previsto (utenti $\ll 500$ per tenant),
+per cui PostgreSQL con connection pooling e indici copertura \`e gi\`a sufficiente
+a soddisfare lo SLO di 300\,ms.
+
+\section{Trade-off automazione vs.\ sicurezza}
+\label{sec:tradeoff_safety}
+
+L'adozione della soglia di confidenza $\theta = 0{,}85$ \`e un trade-off deliberato:
+
+\begin{itemize}[leftmargin=*]
+    \item $\theta$ pi\`u alta ($\rightarrow 1{,}0$): riduce gli auto-filing errati ma
+          sposta il burden sull'Inbox view (l'utente deve revisionare pi\`u proposte).
+    \item $\theta$ pi\`u bassa ($\rightarrow 0{,}5$): massimizza l'autonomia agentica
+          ma aumenta il rischio di mis-filing.
+\end{itemize}
+
+La scelta $\theta = 0{,}85$ \`e conservativa, in coerenza con il fatto che il costo
+della riclassificazione manuale \`e basso ($\sim$ secondi/utente), mentre il costo
+di una fattura archiviata nella cartella sbagliata pu\`o tradursi in mancato pagamento
+o irrecuperabilit\`a del documento per anni.
+
+\section{Return on Agent (ROA)}
+\label{sec:roa}
+
+\subsection{Stima quantitativa}
+
+Si consideri un'organizzazione con $1.000$ documenti/mese soggetti a triage, e un costo
+medio del lavoro di triage di $40$\,s/documento $\times$ \euro$\,40$/h:
+
+\[
+\text{Costo manuale} = 1000 \times \frac{40}{3600} \times 40 = \text{\euro}\,444/\text{mese}
+\]
+
+Con un agente che auto-archivia con precisione $\geq 95\%$ una quota stimata del $70\%$
+dei documenti, si risparmiano:
+
+\[
+700 \times \text{\euro}\,0{,}44 = \text{\euro}\,308/\text{mese}
+\]
+
+Sottraendo il costo agentico ($\sim$\euro$\,300$/mese da Tabella~\ref{tab:opex}),
+il ROA pre-overhead \`e \emph{marginalmente positivo} in termini di risparmio diretto.
+
+\subsection{Valore operativo reale}
+
+Il valore reale del componente agentico non risiede nel mero risparmio di FTE, ma in
+tre effetti operativi:
+
+\begin{enumerate}[leftmargin=*]
+    \item \textbf{Tail-risk reduction}: la riduzione di documenti mis-filed abbassa
+          la probabilit\`a di eventi a bassa frequenza ma alto costo (penali fiscali,
+          controversie contrattuali, sanzioni GDPR per documenti non reperibili).
+
+    \item \textbf{Time-to-archive}: da minuti/ore a secondi. Il documento \`e
+          ricercabile prima che il successivo evento operativo ne richieda la
+          consultazione (es.\ approvazione di pagamento, firma contratto).
+
+    \item \textbf{User experience}: la differenza percepita tra ``triage manuale su
+          email'' e ``revisione di proposte gi\`a contestualizzate con reasoning
+          esplicito'' \`e pi\`u rilevante della differenza monetaria.
+\end{enumerate}
+
+\section{Compliance ai criteri di valutazione}
+\label{sec:compliance}
+
+\subsection{Graceful degradation}
+
+Come dettagliato nel \Cref{chap:failure}:
+\begin{itemize}[leftmargin=*]
+    \item DB irraggiungibile: backend mantiene parte del read path; health endpoint 503.
+    \item S3 irraggiungibile: control plane funzionante, solo upload/download bloccati.
+    \item LLM irraggiungibile: pipeline degrada a ``manual filing'' con persistenza completa.
+    \item Tika irraggiungibile: file marcato come \texttt{failed}, loop non bloccato.
+\end{itemize}
+
+\subsection{Budget compliance}
+
+Il cost ceiling dell'agente (Sezione~\ref{sec:agent_cost}) \`e garantito strutturalmente
+da anteprime capped, batch size limitato, no-retry e polling adattivo. L'OPEX complessivo
+si mantiene $\sim$\euro$\,1.000$/mese per tenant medio.
+
+\subsection{Recovery Time Objective}
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabularx}{\linewidth}{l X r}
+\toprule
+\textbf{Scenario} & \textbf{Meccanismo di recovery} & \textbf{RTO stimato} \\
+\midrule
+DB transient failure ($\leq 60$\,s) & \texttt{pool\_pre\_ping} + restart automatico container & $\sim 30$\,s \\
+Worker crash                         & Riavvio container (\texttt{restart: always})            & $\leq 30$\,s \\
+Email poller crash                   & Riavvio container                                      & $\leq 60$\,s \\
+Perdita di email durante restart     & Watermark \texttt{last\_uid} + UNIQUE constraint       & 0 (idempotente) \\
+\bottomrule
+\end{tabularx}
+\caption{Recovery Time Objective per scenario.}
+\label{tab:rto}
+\end{table}

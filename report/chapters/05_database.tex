@@ -1,0 +1,321 @@
+\chapter{Modello dei dati}
+\label{chap:database}
+
+\section{Schema relazionale}
+\label{sec:schema}
+
+Lo schema relazionale (definito in \texttt{init.sql}) si articola in nove tabelle principali.
+Tutte le chiavi primarie sono \texttt{UUID} generati dall'estensione \texttt{pgcrypto}
+(\texttt{gen\_random\_uuid()}). Le foreign key utilizzano \texttt{ON DELETE CASCADE}
+ovunque la relazione sia di composizione, garantendo l'invariante di assenza di
+\emph{dangling references}.
+
+\begin{figure}[ht]
+\footnotesize
+\begin{verbatim}
+users  ─── 1:N ─── folders        (gerarchia con parent_id self-ref)
+   │                  │
+   │                  └── 1:N ─── documents
+   │
+   ├── 1:N ─── permissions        (target esclusivo: folder XOR document)
+   ├── 1:N ─── history
+   ├── 1:N ─── email_accounts
+   │              │
+   │              └── 1:N ─── email_jobs ─── 1:N ─── agent_files
+   │                                │                      │
+   │                                └── 1:N ─── agent_operations
+   │
+   └── 1:N ─── agent_operations
+\end{verbatim}
+\caption{Sintesi testuale del modello entit\`a-relazione.}
+\label{fig:erd}
+\end{figure}
+
+\section{Tabelle principali}
+\label{sec:tabelle_principali}
+
+\subsection{users}
+
+Tabella centrale del sistema: rappresenta un account utente.
+
+\begin{lstlisting}[language=SQL, caption={DDL della tabella \texttt{users}.}]
+CREATE TABLE users (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    username      VARCHAR(100) NOT NULL,
+    email         VARCHAR(100) UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    role          VARCHAR(20) DEFAULT 'USER',   -- USER | DOMAIN_ADMIN
+    is_active     BOOLEAN DEFAULT TRUE,
+    created_at    TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    last_active_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+\end{lstlisting}
+
+Il campo \texttt{last\_active\_at} \`e aggiornato dal middleware \texttt{LastActiveMiddleware}
+con debounce di 5~minuti per ogni richiesta autenticata, evitando scritture eccessive
+per ogni singola API call.
+
+\subsection{folders}
+
+Struttura gerarchica ad albero realizzata tramite self-join su \texttt{parent\_id}:
+
+\begin{lstlisting}[language=SQL, caption={DDL della tabella \texttt{folders}.}]
+CREATE TABLE folders (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name       VARCHAR(255) NOT NULL,
+    parent_id  UUID REFERENCES folders(id) ON DELETE CASCADE,
+    owner_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+CREATE INDEX idx_folders_parent_id ON folders(parent_id);
+\end{lstlisting}
+
+\subsection{documents}
+
+\begin{lstlisting}[language=SQL, caption={DDL della tabella \texttt{documents}.}]
+CREATE TABLE documents (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name       VARCHAR(255) NOT NULL,
+    mime_type  VARCHAR(100),
+    size_bytes BIGINT,           -- NULL fino alla conferma post-upload
+    folder_id  UUID REFERENCES folders(id) ON DELETE CASCADE,
+    owner_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+CREATE INDEX idx_documents_folder_id ON documents(folder_id);
+CREATE INDEX idx_documents_owner_id  ON documents(owner_id);
+\end{lstlisting}
+
+Il campo \texttt{size\_bytes = NULL} indica un documento in attesa di conferma
+(fase 1 del two-phase upload): \`e filtrato dalle listing degli utenti.
+
+\subsection{permissions}
+
+\begin{lstlisting}[language=SQL, caption={DDL della tabella \texttt{permissions}.}]
+CREATE TABLE permissions (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    folder_id    UUID REFERENCES folders(id) ON DELETE CASCADE,
+    document_id  UUID REFERENCES documents(id) ON DELETE CASCADE,
+    access_level VARCHAR(20) NOT NULL,
+    shared_at    TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    CONSTRAINT chk_permission_target CHECK (
+        (folder_id IS NOT NULL AND document_id IS NULL) OR
+        (folder_id IS NULL AND document_id IS NOT NULL)
+    ),
+    CONSTRAINT chk_access_level CHECK (
+        access_level IN ('VIEWER', 'EDITOR')
+    )
+);
+\end{lstlisting}
+
+Il vincolo \texttt{chk\_permission\_target} garantisce che ogni permesso si riferisca
+a esattamente una risorsa (folder XOR document). La cascata di delete dalla risorsa
+padre revoca automaticamente i permessi su di essa.
+
+\section{Tabelle per l'integrazione email}
+\label{sec:tabelle_email}
+
+\subsection{email\_accounts}
+
+\begin{lstlisting}[language=SQL, caption={DDL della tabella \texttt{email\_accounts} (estratto).}]
+CREATE TABLE email_accounts (
+    id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id               UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    email_address         VARCHAR(255) NOT NULL,
+    imap_host             VARCHAR(255) NOT NULL,
+    imap_port             INTEGER DEFAULT 993,
+    use_ssl               BOOLEAN DEFAULT TRUE,
+    auth_type             VARCHAR(20) DEFAULT 'app_password',
+    encrypted_credentials TEXT NOT NULL,   -- Fernet-encrypted
+    oauth_provider        VARCHAR(20),
+    is_active             BOOLEAN DEFAULT TRUE,
+    last_synced_at        TIMESTAMP WITH TIME ZONE,
+    last_uid              BIGINT DEFAULT 0,  -- watermark IMAP
+    created_at            TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    CONSTRAINT chk_auth_type CHECK (auth_type IN ('app_password', 'oauth2'))
+);
+\end{lstlisting}
+
+Il campo \texttt{last\_uid} \`e il watermark IMAP: ad ogni ciclo il poller recupera
+solo i messaggi con UID superiore a questo valore, garantendo l'idempotenza rispetto
+ai messaggi gi\`a processati.
+
+\subsection{email\_jobs}
+
+\begin{lstlisting}[language=SQL, caption={DDL della tabella \texttt{email\_jobs}.}]
+CREATE TABLE email_jobs (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email_account_id UUID NOT NULL REFERENCES email_accounts(id) ON DELETE CASCADE,
+    message_uid      BIGINT NOT NULL,
+    subject          TEXT,
+    sender           VARCHAR(255),
+    received_at      TIMESTAMP WITH TIME ZONE,
+    eml_storage_key  TEXT,   -- chiave S3 del file .eml grezzo
+    status           VARCHAR(20) DEFAULT 'pending',
+    error_message    TEXT,
+    created_at       TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    processed_at     TIMESTAMP WITH TIME ZONE,
+    CONSTRAINT chk_job_status CHECK (
+        status IN ('pending', 'processing', 'done', 'failed')
+    ),
+    UNIQUE (email_account_id, message_uid)   -- idempotenza IMAP
+);
+\end{lstlisting}
+
+Il vincolo \texttt{UNIQUE(email\_account\_id, message\_uid)} garantisce che lo stesso
+messaggio non venga processato due volte, anche in presenza di riavvii del poller o di
+esecuzioni concorrenti.
+
+\section{Tabelle per il layer agentico}
+\label{sec:tabelle_agentiche}
+
+\subsection{agent\_files}
+
+\begin{lstlisting}[language=SQL, caption={DDL della tabella \texttt{agent\_files}.}]
+CREATE TABLE agent_files (
+    id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    job_id             UUID REFERENCES email_jobs(id) ON DELETE CASCADE,
+    source             VARCHAR(20) NOT NULL DEFAULT 'email',
+    filename           VARCHAR(255) NOT NULL,
+    mime_type          VARCHAR(100),
+    size_bytes         BIGINT,
+    content_hash       VARCHAR(64),   -- SHA-256 per deduplicazione
+    suggested_folder_id UUID REFERENCES folders(id) ON DELETE SET NULL,
+    confidence         FLOAT,
+    agent_reasoning    TEXT,
+    document_id        UUID REFERENCES documents(id) ON DELETE SET NULL,
+    status             VARCHAR(20) DEFAULT 'pending',
+    auto_filed         BOOLEAN DEFAULT FALSE,
+    needs_classification BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at         TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    CONSTRAINT chk_agent_file_status CHECK (
+        status IN ('pending','auto_filed','in_inbox','confirmed',
+                   'rejected','indexed','failed')
+    ),
+    CONSTRAINT chk_agent_file_source CHECK (
+        source IN ('email', 'manual_upload')
+    ),
+    CONSTRAINT chk_agent_file_source_has_job CHECK (
+        (source = 'email' AND job_id IS NOT NULL) OR
+        (source = 'manual_upload' AND job_id IS NULL)
+    )
+);
+\end{lstlisting}
+
+Il campo \texttt{content\_hash} (SHA-256 del contenuto del file) \`e usato per la
+deduplicazione: file identici ricevuti pi\`u volte non vengono ri-classificati.
+Il flag \texttt{needs\_classification} separa i caricamenti manuali diretti (che
+richiedono solo indicizzazione in OpenSearch) dai caricamenti AI-assisted (che
+richiedono anche l'invocazione dell'agente LLM).
+
+\subsection{agent\_operations}
+
+\begin{lstlisting}[language=SQL, caption={DDL della tabella \texttt{agent\_operations}.}]
+CREATE TABLE agent_operations (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id        UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    job_id         UUID REFERENCES email_jobs(id),
+    agent_file_id  UUID REFERENCES agent_files(id),
+    operation_type VARCHAR(50) NOT NULL,
+    description    TEXT NOT NULL,
+    details        JSONB,           -- struttura arbitraria per evento
+    created_at     TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    CONSTRAINT chk_operation_type CHECK (
+        operation_type IN (
+            'email_received', 'attachment_extracted', 'auto_filed',
+            'sent_to_inbox', 'duplicate_skipped',
+            'manual_upload_received', 'error'
+        )
+    )
+);
+CREATE INDEX idx_agent_operations_user_id    ON agent_operations(user_id);
+CREATE INDEX idx_agent_operations_created_at ON agent_operations(created_at);
+\end{lstlisting}
+
+Questa tabella costituisce l'audit log immutabile delle azioni agentiche, esposto
+all'endpoint \texttt{GET /agent/operations} e visualizzato nella \emph{Agent History
+view}. La colonna \texttt{details JSONB} accoglie metadati strutturati specifici per
+tipo di evento (es.\ \texttt{\{"folder\_id": "...", "confidence": 0.92\}} per
+\texttt{auto\_filed}).
+
+\section{Macchine a stati}
+\label{sec:state_machines}
+
+\subsection{email\_jobs}
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabularx}{\linewidth}{l X l}
+\toprule
+\textbf{Stato} & \textbf{Significato} & \textbf{Transizioni in uscita} \\
+\midrule
+\texttt{pending}    & Job creato dal poller, nessun lavoro avviato.                  & $\rightarrow$ \texttt{processing} \\
+\texttt{processing} & Worker ha preso in carico il job.                              & $\rightarrow$ \texttt{done} / \texttt{failed} \\
+\texttt{done}       & Allegati estratti, classificati e persistiti.                  & --- \\
+\texttt{failed}     & Errore non recuperabile; \texttt{error\_message} valorizzato.  & manuale \\
+\bottomrule
+\end{tabularx}
+\caption{Macchina a stati di \texttt{email\_jobs}.}
+\label{tab:state_machine_jobs}
+\end{table}
+
+\subsection{agent\_files}
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabularx}{\linewidth}{l X}
+\toprule
+\textbf{Stato} & \textbf{Significato} \\
+\midrule
+\texttt{pending}      & File creato, in attesa di elaborazione da parte dell'agent worker. \\
+\texttt{auto\_filed}  & Classificato con confidenza $\geq \theta$; documento spostato nella cartella. \\
+\texttt{in\_inbox}    & Confidenza $< \theta$ o nessuna cartella valida; proposta in attesa di revisione. \\
+\texttt{indexed}      & Solo indicizzazione OpenSearch richiesta (no classificazione); completato. \\
+\texttt{confirmed}    & Proposta accettata dall'utente dall'\emph{inbox view}. \\
+\texttt{rejected}     & Proposta rigettata dall'utente. \\
+\texttt{failed}       & Errore non recuperabile (Tika irraggiungibile, LLM error, ecc.). \\
+\bottomrule
+\end{tabularx}
+\caption{Macchina a stati di \texttt{agent\_files}.}
+\label{tab:state_machine_files}
+\end{table}
+
+\section{Strategia di indicizzazione}
+\label{sec:indexing}
+
+Gli indici sono definiti sulle colonne usate pi\`u frequentemente nelle query critiche:
+
+\begin{itemize}[leftmargin=*]
+    \item \texttt{folders(parent\_id)}: navigazione gerarchica dell'albero cartelle.
+    \item \texttt{documents(folder\_id)}, \texttt{documents(owner\_id)}: listing documenti per cartella o proprietario.
+    \item \texttt{permissions(user\_id)}, \texttt{permissions(user\_id, folder\_id)},
+          \texttt{permissions(user\_id, document\_id)}: verifica dei permessi su ogni operazione.
+    \item \texttt{email\_jobs(status)}: selezione dei job \texttt{pending} da parte del worker.
+    \item \texttt{agent\_files(status)}, \texttt{agent\_files(source, status)}: selezione dei
+          file da elaborare nei due rami del worker (email vs.\ manual\_upload).
+    \item \texttt{agent\_files(content\_hash)}: deduplicazione rapida.
+    \item \texttt{agent\_operations(user\_id)}, \texttt{agent\_operations(created\_at)}:
+          timeline delle operazioni agentiche.
+\end{itemize}
+
+\section{Tabella di branding multi-tenant}
+\label{sec:branding_table}
+
+\begin{lstlisting}[language=SQL, caption={DDL della tabella \texttt{domain\_branding}.}]
+CREATE TABLE domain_branding (
+    domain          VARCHAR(255) PRIMARY KEY,  -- e.g. "azienda.com"
+    brand_name      VARCHAR(100),
+    primary_color   VARCHAR(20),   -- colore hex
+    logo            BYTEA,         -- immagine binaria
+    logo_mime_type  VARCHAR(100),
+    updated_at      TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+\end{lstlisting}
+
+Ogni tenant pu\`o personalizzare il nome del brand, il colore primario dell'interfaccia
+e il logo aziendale. La chiave primaria \`e il dominio email (es.\ \texttt{azienda.com}),
+derivato automaticamente alla registrazione del primo utente.
