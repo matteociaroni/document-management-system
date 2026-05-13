@@ -7,7 +7,8 @@ from app.models import User, Folder, Document
 from app.schemas import FolderCreate, FolderResponse, MoveRequest
 from app.auth import get_current_user
 from app.permissions_helper import has_permission, has_write_permission
-from app.storage import get_s3_client, get_bucket_name
+from app.storage import get_s3_client, get_tenant_folder
+from app.config import settings
 
 router = APIRouter(prefix="/folders", tags=["folders"])
 
@@ -119,19 +120,20 @@ def _copy_folder_recursive(db, s3, src_folder_id, dest_parent_id, user):
     db.add(new_folder)
     db.flush()
     
-    dest_bucket = get_bucket_name(user.email)
+    bucket = settings.gcp_bucket_name
+    dest_folder = get_tenant_folder(user.email)
     
     try:
-        s3.head_bucket(Bucket=dest_bucket)
+        s3.head_bucket(Bucket=bucket)
     except Exception as e:
-        if '404' in str(e) or 'Not Found' in str(e):
-            s3.create_bucket(Bucket=dest_bucket)
+        if '404' in str(e) or 'Not Found' in str(e) or 'NoSuchBucket' in str(e):
+            s3.create_bucket(Bucket=bucket)
         else:
             raise
             
     docs = db.query(Document).filter(Document.folder_id == src_folder_id).all()
     for doc in docs:
-        src_bucket = get_bucket_name(doc.owner.email)
+        src_folder = get_tenant_folder(doc.owner.email)
         new_doc = Document(
             name=doc.name,
             mime_type=doc.mime_type,
@@ -141,10 +143,10 @@ def _copy_folder_recursive(db, s3, src_folder_id, dest_parent_id, user):
         )
         db.add(new_doc)
         db.flush()
-        copy_src = f"{src_bucket}/{doc.id}"
+        copy_src = f"{bucket}/{src_folder}/{doc.id}"
         print(f"DEBUG folders.py CopySource: {copy_src!r}", flush=True)
         try:
-            s3.copy_object(CopySource=copy_src, Bucket=dest_bucket, Key=str(new_doc.id))
+            s3.copy_object(CopySource=copy_src, Bucket=bucket, Key=f"{dest_folder}/{str(new_doc.id)}")
         except Exception as e:
             print(f"WARNING: Skipping S3 copy for missing object {copy_src}. Error: {e}", flush=True)
         

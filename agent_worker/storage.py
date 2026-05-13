@@ -1,7 +1,7 @@
 import boto3
 from config import settings
 
-EML_BUCKET = "email-eml-storage"
+
 
 
 def get_s3_client():
@@ -14,7 +14,7 @@ def get_s3_client():
     )
 
 
-def get_bucket_name(email: str) -> str:
+def get_tenant_folder(email: str) -> str:
     """Derive document bucket name from user email domain (mirrors backend logic)."""
     domain = email.split("@")[1]
     return domain.replace(".", "-")
@@ -22,14 +22,14 @@ def get_bucket_name(email: str) -> str:
 
 def load_eml(storage_key: str) -> bytes:
     s3 = get_s3_client()
-    obj = s3.get_object(Bucket=EML_BUCKET, Key=storage_key)
+    obj = s3.get_object(Bucket=settings.gcp_bucket_name, Key=storage_key)
     return obj["Body"].read()
 
 
-def load_document(bucket: str, document_id: str) -> bytes:
-    """Download a document's bytes from the user's tenant bucket."""
+def load_document(tenant_folder: str, document_id: str) -> bytes:
+    """Download a document's bytes from the user's tenant folder."""
     s3 = get_s3_client()
-    obj = s3.get_object(Bucket=bucket, Key=document_id)
+    obj = s3.get_object(Bucket=settings.gcp_bucket_name, Key=f"{tenant_folder}/{document_id}")
     return obj["Body"].read()
 
 

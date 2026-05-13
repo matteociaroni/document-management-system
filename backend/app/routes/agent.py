@@ -16,7 +16,7 @@ from app.database import get_db
 from app.models import User, AgentFile, EmailJob, AgentOperation, Document, Folder
 from app.schemas import AgentOperationResponse, ProposalResponse, ProposalMoveRequest
 from app.auth import get_current_user
-from app.storage import get_s3_client, get_bucket_name
+from app.storage import get_s3_client, get_tenant_folder
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 

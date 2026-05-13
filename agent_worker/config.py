@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     s3_endpoint: str = "http://localhost:8333"
     s3_access_key: str = "mykey"
     s3_secret_key: str = "mysecret"
+    gcp_bucket_name: str = "dms-storage"
 
     model_name: str = "claude-sonnet-4-6"
     base_url: str = ""

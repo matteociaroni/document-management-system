@@ -36,7 +36,7 @@ from agent import run_filing_agent
 from database import SessionLocal
 from eml_parser import extract_text_preview, parse_email
 from models import AgentOperation, Document, EmailAccount, AgentFile, EmailJob, User
-from storage import ensure_bucket, get_bucket_name, get_s3_client, load_document, load_eml, EML_BUCKET
+from storage import ensure_bucket, get_tenant_folder, get_s3_client, load_document, load_eml
 from text_extractor import extract_text_with_tika, TEXT_PREVIEW_CHARS
 
 logging.basicConfig(
@@ -227,9 +227,10 @@ def _process_job(db: Session, job: EmailJob, os_client: OpenSearch) -> None:
         db.commit()
         return
 
-    # Upload attachments to SeaweedFS and create Document + AgentFile records
+    # Upload attachments to single bucket and create Document + AgentFile records
     s3 = get_s3_client()
-    bucket = get_bucket_name(user.email)
+    bucket = settings.gcp_bucket_name
+    tenant_folder = get_tenant_folder(user.email)
     ensure_bucket(s3, bucket)
 
     records: list[tuple] = []  # (ParsedAttachment, AgentFile, Document)
@@ -247,7 +248,7 @@ def _process_job(db: Session, job: EmailJob, os_client: OpenSearch) -> None:
         db.add(doc)
         db.flush()
 
-        s3.put_object(Bucket=bucket, Key=str(doc.id), Body=att.content)
+        s3.put_object(Bucket=bucket, Key=f"{tenant_folder}/{str(doc.id)}", Body=att.content)
 
         agent_file = AgentFile(
             job_id=job.id,
@@ -450,9 +451,9 @@ def _process_manual_upload(db: Session, agent_file: AgentFile, os_client: OpenSe
     if not user:
         raise ValueError(f"Document {doc.id} owner not found")
 
-    # Step 1 (Tika): pull bytes from the tenant bucket and extract text.
-    bucket = get_bucket_name(user.email)
-    content = load_document(bucket, str(doc.id))
+    # Step 1 (Tika): pull bytes from the single bucket and extract text.
+    tenant_folder = get_tenant_folder(user.email)
+    content = load_document(tenant_folder, str(doc.id))
     full_text = extract_text_with_tika(content)
     text_preview = full_text[:TEXT_PREVIEW_CHARS] if full_text else None
 
@@ -606,10 +607,10 @@ def run_worker() -> None:
         settings.auto_file_threshold * 100,
     )
 
-    # Ensure EML bucket exists at startup
+    # Ensure main bucket exists at startup
     s3 = get_s3_client()
-    ensure_bucket(s3, EML_BUCKET)
-    logger.info("EML bucket '%s' is ready", EML_BUCKET)
+    ensure_bucket(s3, settings.gcp_bucket_name)
+    logger.info("Main storage bucket '%s' is ready", settings.gcp_bucket_name)
 
     # Create OpenSearch client
     os_client = _get_opensearch_client()

@@ -16,9 +16,10 @@ from app.schemas import (
     AIUploadResponse,
 )
 from app.auth import get_current_user
-from app.storage import generate_upload_url, generate_download_url, get_s3_client, get_bucket_name
+from app.storage import generate_upload_url, generate_download_url, get_s3_client, get_tenant_folder
 from app.permissions_helper import has_permission, has_write_permission
 from fastapi.responses import StreamingResponse
+from app.config import settings
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -90,11 +91,11 @@ async def upload_document(
     
     try:
         s3 = get_s3_client()
-        bucket = get_bucket_name(user.email)
+        bucket = settings.gcp_bucket_name
         try:
             s3.head_bucket(Bucket=bucket)
         except Exception as e:
-            if '404' in str(e):
+            if '404' in str(e) or 'Not Found' in str(e) or 'NoSuchBucket' in str(e):
                 s3.create_bucket(Bucket=bucket)
             else:
                 raise
@@ -144,7 +145,8 @@ async def upload_document_with_ai(
 
     try:
         s3 = get_s3_client()
-        bucket = get_bucket_name(user.email)
+        bucket = settings.gcp_bucket_name
+        tenant_folder = get_tenant_folder(user.email)
         try:
             s3.head_bucket(Bucket=bucket)
         except Exception as e:
@@ -152,7 +154,7 @@ async def upload_document_with_ai(
                 s3.create_bucket(Bucket=bucket)
             else:
                 raise
-        s3.put_object(Bucket=bucket, Key=str(doc.id), Body=content, ContentType=mime_type)
+        s3.put_object(Bucket=bucket, Key=f"{tenant_folder}/{str(doc.id)}", Body=content, ContentType=mime_type)
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Upload to storage failed: {e}")
@@ -204,8 +206,9 @@ def confirm_document_upload(
 
     try:
         s3 = get_s3_client()
-        bucket = get_bucket_name(user.email)
-        obj = s3.head_object(Bucket=bucket, Key=str(doc.id))
+        bucket = settings.gcp_bucket_name
+        tenant_folder = get_tenant_folder(user.email)
+        obj = s3.head_object(Bucket=bucket, Key=f"{tenant_folder}/{str(doc.id)}")
         doc.size_bytes = obj['ContentLength']
 
         existing = (
@@ -240,8 +243,9 @@ def download_document(document_id: UUID, user: User = Depends(get_current_user),
     doc = _get_document_or_404(db, document_id, user, check_permission=True)
     try:
         s3 = get_s3_client()
-        bucket = get_bucket_name(doc.owner.email)
-        obj = s3.get_object(Bucket=bucket, Key=str(doc.id))
+        bucket = settings.gcp_bucket_name
+        tenant_folder = get_tenant_folder(doc.owner.email)
+        obj = s3.get_object(Bucket=bucket, Key=f"{tenant_folder}/{str(doc.id)}")
         
         def iterfile():
             for chunk in obj['Body'].iter_chunks():
@@ -366,20 +370,21 @@ def copy_document(document_id: UUID, req: MoveRequest, user: User = Depends(get_
     
     try:
         s3 = get_s3_client()
-        dest_bucket = get_bucket_name(user.email)
-        src_bucket = get_bucket_name(doc.owner.email)
+        bucket = settings.gcp_bucket_name
+        dest_folder = get_tenant_folder(user.email)
+        src_folder = get_tenant_folder(doc.owner.email)
         
         try:
-            s3.head_bucket(Bucket=dest_bucket)
+            s3.head_bucket(Bucket=bucket)
         except Exception as e:
-            if '404' in str(e) or 'Not Found' in str(e):
-                s3.create_bucket(Bucket=dest_bucket)
+            if '404' in str(e) or 'Not Found' in str(e) or 'NoSuchBucket' in str(e):
+                s3.create_bucket(Bucket=bucket)
             else:
                 raise
                 
-        copy_src = f"{src_bucket}/{doc.id}"
+        copy_src = f"{bucket}/{src_folder}/{doc.id}"
         print(f"DEBUG documents.py CopySource: {copy_src!r}", flush=True)
-        s3.copy_object(CopySource=copy_src, Bucket=dest_bucket, Key=str(new_doc.id))
+        s3.copy_object(CopySource=copy_src, Bucket=bucket, Key=f"{dest_folder}/{str(new_doc.id)}")
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail="Failed to copy file in storage. It may not exist on S3. Error: " + str(e))

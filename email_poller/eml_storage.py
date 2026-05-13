@@ -7,20 +7,21 @@ retrieved later by the agent worker.
 
 import logging
 from storage import get_s3_client
+from config import settings
 
 logger = logging.getLogger(__name__)
 
-EML_BUCKET = "email-eml-storage"
+EML_FOLDER = "email-eml-storage"
 
 
 def _ensure_bucket(s3) -> None:
     """Create the EML bucket if it doesn't exist yet."""
     try:
-        s3.head_bucket(Bucket=EML_BUCKET)
+        s3.head_bucket(Bucket=settings.gcp_bucket_name)
     except Exception as e:
         if "404" in str(e) or "NoSuchBucket" in str(e) or "Not Found" in str(e):
-            s3.create_bucket(Bucket=EML_BUCKET)
-            logger.info("Created EML storage bucket: %s", EML_BUCKET)
+            s3.create_bucket(Bucket=settings.gcp_bucket_name)
+            logger.info("Created main storage bucket: %s", settings.gcp_bucket_name)
         else:
             raise
 
@@ -39,14 +40,14 @@ def store_eml(job_id: str, raw_bytes: bytes) -> str:
     s3 = get_s3_client()
     _ensure_bucket(s3)
 
-    key = f"{job_id}.eml"
+    key = f"{EML_FOLDER}/{job_id}.eml"
     s3.put_object(
-        Bucket=EML_BUCKET,
+        Bucket=settings.gcp_bucket_name,
         Key=key,
         Body=raw_bytes,
         ContentType="message/rfc822",
     )
-    logger.debug("Stored EML: bucket=%s key=%s size=%d", EML_BUCKET, key, len(raw_bytes))
+    logger.debug("Stored EML: bucket=%s key=%s size=%d", settings.gcp_bucket_name, key, len(raw_bytes))
     return key
 
 
@@ -61,5 +62,5 @@ def load_eml(storage_key: str) -> bytes:
         Raw bytes of the .eml file.
     """
     s3 = get_s3_client()
-    obj = s3.get_object(Bucket=EML_BUCKET, Key=storage_key)
+    obj = s3.get_object(Bucket=settings.gcp_bucket_name, Key=storage_key)
     return obj["Body"].read()
