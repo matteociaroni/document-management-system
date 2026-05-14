@@ -307,6 +307,17 @@ export const api = {
     return { completed, total: files.length, errors, cancelled: wasCancelled };
   },
 
+  async previewDocument(documentId) {
+    const res = await fetch(`${API_URL}/documents/${documentId}/download?inline=true`, { headers: getHeaders() });
+    if (!res.ok) {
+      const errorText = await res.text();
+      throw new Error(`Preview failed: ${res.status} ${errorText}`);
+    }
+    const blob = await res.blob();
+    const mimeType = res.headers.get('Content-Type') || blob.type || 'application/octet-stream';
+    return { blobUrl: window.URL.createObjectURL(blob), mimeType, size: blob.size };
+  },
+
   async downloadDocument(documentId, filename) {
     const res = await fetch(`${API_URL}/documents/${documentId}/download`, { headers: getHeaders() });
     if (!res.ok) {

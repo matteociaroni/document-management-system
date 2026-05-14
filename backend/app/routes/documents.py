@@ -239,23 +239,29 @@ def confirm_document_upload(
 
 
 @router.get("/{document_id}/download")
-def download_document(document_id: UUID, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def download_document(
+    document_id: UUID,
+    inline: bool = Query(False, description="Serve with Content-Disposition: inline for in-browser preview"),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     doc = _get_document_or_404(db, document_id, user, check_permission=True)
     try:
         s3 = get_s3_client()
         bucket = settings.gcp_bucket_name
         tenant_folder = get_tenant_folder(doc.owner.email)
         obj = s3.get_object(Bucket=bucket, Key=f"{tenant_folder}/{str(doc.id)}")
-        
+
         def iterfile():
             for chunk in obj['Body'].iter_chunks():
                 if chunk:
                     yield chunk
-                    
+
+        disposition = "inline" if inline else "attachment"
         return StreamingResponse(
             iterfile(),
             media_type=doc.mime_type or "application/octet-stream",
-            headers={"Content-Disposition": f"attachment; filename=\"{doc.name}\""}
+            headers={"Content-Disposition": f"{disposition}; filename=\"{doc.name}\""}
         )
     except Exception as e:
         error_str = str(e)

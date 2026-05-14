@@ -4,6 +4,7 @@ import { api } from '../services/api';
 import { Folder, File as FileIcon, MoreVertical, Download, Trash, Share2, Move, FolderPlus, Upload, Sparkles } from 'lucide-react';
 import ShareModal from './ShareModal';
 import MoveModal from './MoveModal';
+import PreviewModal from './PreviewModal';
 import { ConfirmDialog, PromptDialog } from './Dialog';
 import './FileBrowser.css';
 
@@ -28,6 +29,7 @@ export default function FileBrowser({ view, onNavigate, initialFolder }) {
 
   const [shareModalData, setShareModalData] = useState(null);
   const [moveModalData, setMoveModalData] = useState(null);
+  const [previewDoc, setPreviewDoc] = useState(null);
 
   // Custom dialog state
   const [promptDialog, setPromptDialog] = useState({ open: false });
@@ -508,6 +510,7 @@ export default function FileBrowser({ view, onNavigate, initialFolder }) {
               isShared={view === 'shared'}
               currentFolderPermission={currentFolderPermission}
               currentUser={currentUser}
+              onPreview={() => setPreviewDoc(d)}
               onDownload={() => handleDownload(d)}
               onDelete={() => handleDelete(d.id, 'document')}
               onShare={() => setShareModalData({ id: d.id, type: 'document' })}
@@ -541,6 +544,13 @@ export default function FileBrowser({ view, onNavigate, initialFolder }) {
         />
       )}
 
+      {previewDoc && (
+        <PreviewModal
+          document={previewDoc}
+          onClose={() => setPreviewDoc(null)}
+        />
+      )}
+
       <PromptDialog
         isOpen={promptDialog.open}
         title={promptDialog.title}
@@ -566,7 +576,7 @@ export default function FileBrowser({ view, onNavigate, initialFolder }) {
   );
 }
 
-function ItemCard({ item, type, isShared, currentFolderPermission, currentUser, isAgentModified, onNavigate, onDownload, onDelete, onShare, onMove, onDragMove }) {
+function ItemCard({ item, type, isShared, currentFolderPermission, currentUser, isAgentModified, onNavigate, onPreview, onDownload, onDelete, onShare, onMove, onDragMove }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const menuRef = useRef(null);
@@ -642,7 +652,8 @@ function ItemCard({ item, type, isShared, currentFolderPermission, currentUser, 
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      onClick={type === 'folder' ? onNavigate : null}
+      onClick={type === 'folder' ? onNavigate : onPreview}
+      style={type === 'document' && onPreview ? { cursor: 'pointer' } : undefined}
     >
       <div className="item-icon">
         {type === 'folder' ? (
