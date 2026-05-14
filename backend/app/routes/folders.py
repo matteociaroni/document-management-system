@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from uuid import UUID
 from typing import Optional
 from app.database import get_db
-from app.models import User, Folder, Document
+from app.models import User, Folder, Document, AgentFile, AgentOperation
 from app.schemas import FolderCreate, FolderResponse, MoveRequest
 from app.auth import get_current_user
 from app.permissions_helper import has_permission, has_write_permission
@@ -98,20 +98,71 @@ def get_folder(folder_id: UUID, user: User = Depends(get_current_user), db: Sess
     return _get_folder_or_404(db, folder_id, user, check_permission=True)
 
 
+def _collect_documents_recursive(db: Session, folder_id: UUID) -> list[Document]:
+    """Return every Document under this folder and any descendant subfolder."""
+    docs = list(db.query(Document).filter(Document.folder_id == folder_id).all())
+    subfolders = db.query(Folder).filter(Folder.parent_id == folder_id).all()
+    for sub in subfolders:
+        docs.extend(_collect_documents_recursive(db, sub.id))
+    return docs
+
+
 @router.delete("/{folder_id}", status_code=204)
 def delete_folder(folder_id: UUID, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     folder = _get_folder_or_404(db, folder_id, user, check_permission=False)
-    
+
     if folder.owner_id != user.id:
         if not folder.parent_id:
             raise HTTPException(status_code=403, detail="Only owner can delete root folders")
-        
+
         parent = db.query(Folder).filter(Folder.id == folder.parent_id).first()
         if parent.owner_id != user.id and not has_write_permission(db, user.id, folder_id=folder.parent_id):
             raise HTTPException(status_code=403, detail="No write access to parent folder")
-    
+
+    docs = _collect_documents_recursive(db, folder_id)
+
+    # agent_files.document_id is ON DELETE SET NULL, so the DB cascade would
+    # leave orphan pending entries the worker keeps retrying. Detach the
+    # agent_operations FK then remove the agent_files explicitly.
+    if docs:
+        doc_ids = [d.id for d in docs]
+        linked_agent_files = (
+            db.query(AgentFile).filter(AgentFile.document_id.in_(doc_ids)).all()
+        )
+        for af in linked_agent_files:
+            db.query(AgentOperation).filter(
+                AgentOperation.agent_file_id == af.id
+            ).update({"agent_file_id": None})
+            db.delete(af)
+
+    # Snapshot what we need *before* the cascade nukes the rows.
+    opensearch_targets = [(d.owner_id, d.id) for d in docs]
+    bucket_targets = [(get_tenant_folder(d.owner.email), str(d.id)) for d in docs]
+
+    # Remove bucket objects before commit. If any non-idempotent error happens
+    # we abort so the folder stays visible — leaving orphan files in the
+    # bucket is exactly what we're fixing.
+    try:
+        s3 = get_s3_client()
+        bucket = settings.gcp_bucket_name
+        for tenant_folder, doc_id_str in bucket_targets:
+            try:
+                s3.delete_object(Bucket=bucket, Key=f"{tenant_folder}/{doc_id_str}")
+            except Exception as e:
+                error_str = str(e)
+                if '404' not in error_str and 'NoSuchKey' not in error_str:
+                    raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete folder contents from storage: {e}")
+
     db.delete(folder)
     db.commit()
+
+    # OpenSearch tenant index cleanup (best effort).
+    from app.routes.search import delete_from_index
+    for owner_id, doc_id in opensearch_targets:
+        delete_from_index(owner_id, doc_id)
 
 
 def _copy_folder_recursive(db, s3, src_folder_id, dest_parent_id, user):

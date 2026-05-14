@@ -324,6 +324,7 @@ def delete_document(document_id: UUID, user: User = Depends(get_current_user), d
             raise HTTPException(status_code=403, detail="No write access to folder")
     
     owner_id = doc.owner_id
+    owner_email = doc.owner.email
 
     # Clean up AgentFile records that reference this document so the
     # agent_worker doesn't keep retrying orphaned pending entries.
@@ -338,6 +339,21 @@ def delete_document(document_id: UUID, user: User = Depends(get_current_user), d
             AgentOperation.agent_file_id == af.id
         ).update({"agent_file_id": None})
         db.delete(af)
+
+    # Remove the object from the bucket before committing. If storage delete
+    # fails we abort so the document stays visible and the user can retry —
+    # silently leaving an orphan in the bucket is what we're fixing here.
+    # A missing key is treated as success (idempotent delete).
+    try:
+        s3 = get_s3_client()
+        bucket = settings.gcp_bucket_name
+        tenant_folder = get_tenant_folder(owner_email)
+        s3.delete_object(Bucket=bucket, Key=f"{tenant_folder}/{str(document_id)}")
+    except Exception as e:
+        error_str = str(e)
+        if '404' not in error_str and 'NoSuchKey' not in error_str:
+            db.rollback()
+            raise HTTPException(status_code=500, detail=f"Failed to delete file from storage: {e}")
 
     db.delete(doc)
     db.commit()
