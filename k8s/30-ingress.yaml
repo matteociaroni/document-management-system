@@ -1,0 +1,38 @@
+# Standard networking.k8s.io/v1 Ingress — works with Traefik (bundled with k3s)
+# and any other controller. Switch the host names below to your real domains.
+# For TLS later: add cert-manager + a tls: section.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dms-frontend
+  namespace: dms
+spec:
+  rules:
+    - host: dms.matteociaroni.it
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dms-backend
+  namespace: dms
+spec:
+  rules:
+    - host: api.dms.matteociaroni.it
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8000
