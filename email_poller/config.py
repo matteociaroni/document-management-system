@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     s3_endpoint: str = "http://localhost:8333"
     s3_access_key: str = "mykey"
     s3_secret_key: str = "mysecret"
+    gcp_bucket_name: str = "dms-storage"
 
     # Email encryption (Fernet key)
     email_encryption_key: str = "L2II5RV2sn9EPmWoq1tdfHIN2wwntQfXeKLMG4lPbCc=" # TODO: "change-me-generate-a-real-fernet-key"

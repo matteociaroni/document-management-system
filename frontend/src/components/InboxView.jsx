@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { useUI } from '../context/UIContext';
-import { Inbox, Mail, Folder, FolderTree, Check, X, MoveRight, FileText } from 'lucide-react';
+import { Inbox, Mail, Folder, FolderTree, Check, X, MoveRight, FileText, Trash2 } from 'lucide-react';
 import './InboxView.css';
 
 function FolderPickerModal({ onClose, onPick }) {
@@ -134,6 +134,20 @@ export default function InboxView() {
     }
   };
 
+  const handleDelete = async (p) => {
+    if (!window.confirm(`Sei sicuro di voler eliminare '${p.filename}'?`)) return;
+    setGlobalLoading(true, 'Eliminazione in corso...');
+    try {
+      await api.deleteProposal(p.id);
+      addToast(`'${p.filename}' eliminato`, 'success');
+      removeFromList(p.id);
+    } catch (err) {
+      addToast(`Errore: ${err.message}`, 'error');
+    } finally {
+      setGlobalLoading(false);
+    }
+  };
+
   const formatConfidence = (c) => (c == null ? null : `${Math.round(c * 100)}%`);
 
   const pickerProposal = proposals.find((p) => p.id === pickerForId);
@@ -145,7 +159,7 @@ export default function InboxView() {
         <div>
           <h2 className="inbox-title">Inbox</h2>
           <p className="inbox-subtitle">
-            Allegati per cui l'agente non ha trovato una corrispondenza adeguata. Conferma la cartella suggerita o spostali manualmente.
+            Documenti per cui l'agente non ha trovato una corrispondenza adeguata. Conferma la cartella suggerita o spostali manualmente.
           </p>
         </div>
       </div>
@@ -153,11 +167,11 @@ export default function InboxView() {
       {error && <div className="error-state">{error}</div>}
 
       {loading ? (
-        <div className="loading-state">Caricamento allegati...</div>
+        <div className="loading-state">Caricamento documenti...</div>
       ) : proposals.length === 0 ? (
         <div className="empty-state">
           <Inbox size={48} opacity={0.2} />
-          <p>Nessun allegato in attesa di revisione.</p>
+          <p>Nessun documento in attesa di revisione.</p>
         </div>
       ) : (
         <div className="inbox-list">
@@ -212,6 +226,14 @@ export default function InboxView() {
                     onClick={() => setPickerForId(p.id)}
                   >
                     <MoveRight size={16} /> Sposta in altra cartella
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-danger inbox-btn"
+                    style={{ marginLeft: 'auto' }}
+                    onClick={() => handleDelete(p)}
+                  >
+                    <Trash2 size={16} /> Elimina
                   </button>
                 </div>
               </div>

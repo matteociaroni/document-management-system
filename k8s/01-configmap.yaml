@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dms-config
+  namespace: dms
+data:
+  # Storage (GCS via S3-compatible interop endpoint).
+  # Keep S3_ENDPOINT as a generic URL so the app stays portable across providers.
+  S3_ENDPOINT: "https://storage.googleapis.com"
+  GCP_BUCKET_NAME: "idms-bucket"
+
+  # In-cluster service URLs (service names are kebab-case here, unlike docker-compose).
+  MCP_SERVER_URL: "http://mcp-server:8001/sse"
+  OPENSEARCH_URL: "http://opensearch:9200"
+
+  # LLM proxy.
+  MODEL_NAME: "gemini-2.5-pro"
+  BASE_URL: "https://litellm-proxy-1013932759942.europe-west8.run.app"
+
+  # Embeddings.
+  EMBEDDING_MODEL_NAME: "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"

@@ -1,0 +1,118 @@
+\documentclass[11pt,a4paper,oneside]{report}
+
+% ---------------------------------------------------------------------------
+%  Pacchetti
+% ---------------------------------------------------------------------------
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[italian]{babel}
+\usepackage[a4paper,margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{multirow}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{float}
+\usepackage{hyperref}
+\usepackage{cleveref}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, backgrounds, calc}
+\usepackage{setspace}
+\usepackage{microtype}
+
+% ---------------------------------------------------------------------------
+%  Stile
+% ---------------------------------------------------------------------------
+\hypersetup{
+    colorlinks=true,
+    linkcolor=black,
+    urlcolor=blue!60!black,
+    citecolor=blue!60!black,
+    pdftitle={Intelligent Document Management System --- Technical Report},
+    pdfauthor={DMS Team}
+}
+
+\definecolor{codebg}{HTML}{F7F7F7}
+\definecolor{codekw}{HTML}{0050A0}
+\definecolor{codestr}{HTML}{8C2A00}
+\definecolor{codecomment}{HTML}{6A6A6A}
+
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  backgroundcolor=\color{codebg},
+  keywordstyle=\color{codekw}\bfseries,
+  stringstyle=\color{codestr},
+  commentstyle=\color{codecomment}\itshape,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  numbersep=8pt,
+  breaklines=true,
+  frame=single,
+  framerule=0.3pt,
+  rulecolor=\color{gray!50},
+  showstringspaces=false,
+  tabsize=2,
+  captionpos=b
+}
+
+\titleformat{\chapter}[display]
+  {\normalfont\Large\bfseries}{\chaptertitlename\ \thechapter}{10pt}{\LARGE}
+\titlespacing*{\chapter}{0pt}{-20pt}{30pt}
+
+\titleformat{\section}{\large\bfseries}{\thesection}{0.6em}{}
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{0.5em}{}
+\titleformat{\subsubsection}{\normalsize\itshape\bfseries}{\thesubsubsection}{0.4em}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\leftmark}
+\fancyhead[R]{\small\thepage}
+\fancyfoot[C]{\small Intelligent DMS --- Technical Report}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0.2pt}
+
+% Comando TODO
+\newcommand{\TODO}[1]{\colorbox{yellow!60}{\textbf{[TODO: #1]}}}
+
+% ---------------------------------------------------------------------------
+%  Documento
+% ---------------------------------------------------------------------------
+\begin{document}
+
+\include{chapters/00_frontmatter}
+
+\tableofcontents
+\listoffigures
+\listoftables
+
+\include{chapters/01_introduzione}
+\include{chapters/02_servizio}
+\include{chapters/03_architettura}
+\include{chapters/04_stack}
+\include{chapters/05_database}
+\include{chapters/06_api}
+\include{chapters/07_agentico}
+\include{chapters/08_sicurezza}
+\include{chapters/09_reliability}
+\include{chapters/10_observability}
+\include{chapters/11_devsecops}
+\include{chapters/12_testing}
+\include{chapters/13_roi}
+\include{chapters/14_failure}
+\include{chapters/15_conclusioni}
+
+\appendix
+\include{appendices/A_database}
+\include{appendices/B_api}
+\include{appendices/C_env}
+
+\end{document}

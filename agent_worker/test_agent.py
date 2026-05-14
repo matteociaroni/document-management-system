@@ -52,10 +52,10 @@ if __name__ == "__main__":
 
     result = run_filing_agent(
         user_id=USER_ID,
-        email_subject="Documenti amministrativi Marzo 2026",
-        email_sender="amministrazione@fornitore.com",
-        email_body="Buongiorno, in allegato troverà la fattura relativa al mese di marzo "
-                   "e il contratto di fornitura aggiornato. Cordiali saluti.",
+        context_title="Documenti amministrativi Marzo 2026",
+        context_source="amministrazione@fornitore.com",
+        context_description="Buongiorno, in allegato troverà la fattura relativa al mese di marzo "
+                            "e il contratto di fornitura aggiornato. Cordiali saluti.",
         attachments=FAKE_ATTACHMENTS,
     )
 

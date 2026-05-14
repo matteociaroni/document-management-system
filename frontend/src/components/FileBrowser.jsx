@@ -1,25 +1,35 @@
 import { useState, useEffect, useRef } from 'react';
 import { useUI } from '../context/UIContext';
 import { api } from '../services/api';
-import { Folder, File as FileIcon, MoreVertical, Download, Trash, Share2, Move, FolderPlus, Upload } from 'lucide-react';
+import { Folder, File as FileIcon, MoreVertical, Download, Trash, Share2, Move, FolderPlus, Upload, Sparkles } from 'lucide-react';
 import ShareModal from './ShareModal';
 import MoveModal from './MoveModal';
+import PreviewModal from './PreviewModal';
 import { ConfirmDialog, PromptDialog } from './Dialog';
 import './FileBrowser.css';
 
-export default function FileBrowser({ view }) {
+export default function FileBrowser({ view, onNavigate, initialFolder }) {
+  const rootCrumb = { id: null, name: view === 'shared' ? 'Shared with me' : 'My Drive' };
+  const buildInitialBreadcrumb = () => {
+    if (initialFolder && Array.isArray(initialFolder.pathChain) && initialFolder.pathChain.length > 0) {
+      return [rootCrumb, ...initialFolder.pathChain.map(p => ({ id: p.id, name: p.name }))];
+    }
+    return [rootCrumb];
+  };
+
   const [items, setItems] = useState({ folders: [], documents: [] });
   const [loading, setLoading] = useState(true);
-  const [currentFolderId, setCurrentFolderId] = useState(null);
+  const [currentFolderId, setCurrentFolderId] = useState(initialFolder?.id ?? null);
   const [currentFolderPermission, setCurrentFolderPermission] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
-  const [breadcrumb, setBreadcrumb] = useState([{ id: null, name: view === 'shared' ? 'Shared with me' : 'My Drive' }]);
+  const [breadcrumb, setBreadcrumb] = useState(buildInitialBreadcrumb);
   const [dragActive, setDragActive] = useState(false);
   const [agentModifiedFolders, setAgentModifiedFolders] = useState(new Set());
-  const { setLoading: setGlobalLoading, addToast } = useUI();
+  const { setLoading: setGlobalLoading, addToast, startUploadTask, updateUploadProgress, finishUploadTask } = useUI();
 
   const [shareModalData, setShareModalData] = useState(null);
   const [moveModalData, setMoveModalData] = useState(null);
+  const [previewDoc, setPreviewDoc] = useState(null);
 
   // Custom dialog state
   const [promptDialog, setPromptDialog] = useState({ open: false });
@@ -53,14 +63,18 @@ export default function FileBrowser({ view }) {
       const unread = new Set();
       
       ops.forEach(op => {
-        if (op.details && op.details.folder_id) {
-          const folderId = op.details.folder_id;
+        const affected = op.affected_folder_ids || [];
+        if (affected.length === 0 && op.details && op.details.folder_id) {
+          affected.push(op.details.folder_id);
+        }
+        
+        affected.forEach(folderId => {
           const opTime = new Date(op.created_at).getTime();
           const readTime = readMap[folderId] || 0;
           if (opTime > readTime) {
             unread.add(folderId);
           }
-        }
+        });
       });
       setAgentModifiedFolders(unread);
     } catch (err) {
@@ -101,15 +115,43 @@ export default function FileBrowser({ view }) {
     input.type = 'file';
     input.onchange = async (e) => {
       if (e.target.files && e.target.files[0]) {
-        setGlobalLoading(true, "Caricamento file in corso...");
+        const file = e.target.files[0];
+        const controller = startUploadTask(1, { indeterminate: true });
+        updateUploadProgress(0, file.name);
         try {
-          await api.uploadDocument(e.target.files[0], currentFolderId);
+          await api.uploadDocument(file, currentFolderId, { signal: controller.signal });
           addToast("File caricato con successo", "success");
           fetchItems();
         } catch (err) {
           addToast(`Errore durante il caricamento: ${err.message}`, "error");
         } finally {
-          setGlobalLoading(false);
+          finishUploadTask();
+        }
+      }
+    };
+    input.click();
+  };
+
+  const handleUploadWithAIClick = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.onchange = async (e) => {
+      if (e.target.files && e.target.files[0]) {
+        const file = e.target.files[0];
+        startUploadTask(1, { indeterminate: true });
+        updateUploadProgress(0, file.name);
+        try {
+          await api.uploadDocumentWithAI(file);
+          addToast(
+            `'${file.name}' caricato. L'AI lo sta classificando: comparirà in Inbox o nella cartella scelta entro qualche istante.`,
+            "success"
+          );
+          fetchItems();
+          if (onNavigate) onNavigate('inbox');
+        } catch (err) {
+          addToast(`Errore upload AI: ${err.message}`, "error");
+        } finally {
+          finishUploadTask();
         }
       }
     };
@@ -123,21 +165,72 @@ export default function FileBrowser({ view }) {
     input.directory = true;
     input.onchange = async (e) => {
       if (e.target.files && e.target.files.length > 0) {
-        setGlobalLoading(true, `Caricamento cartella (${e.target.files.length} file)...`);
+        const files = Array.from(e.target.files);
+        const controller = startUploadTask(files.length);
+
+        // Run upload in the background — no setGlobalLoading
         try {
-          console.log(`Uploading ${e.target.files.length} files from folder...`);
-          await api.uploadFolder(Array.from(e.target.files), currentFolderId);
-          addToast("Cartella caricata con successo", "success");
+          const result = await api.uploadFolder(files, currentFolderId, {
+            signal: controller.signal,
+            onProgress: (completed, currentFile, errors) => {
+              updateUploadProgress(completed, currentFile, errors);
+            },
+          });
+
+          finishUploadTask();
           fetchItems();
+
+          if (result.cancelled) {
+            addToast(`Upload interrotto: ${result.completed}/${result.total} file caricati`, 'info');
+          } else if (result.errors.length > 0) {
+            addToast(`${result.errors.length} file non caricati`, 'error');
+          }
         } catch (err) {
           console.error('Folder upload error:', err);
-          addToast(`Errore durante il caricamento cartella: ${err.message}`, "error");
-        } finally {
-          setGlobalLoading(false);
+          finishUploadTask();
+          fetchItems();
         }
       }
     };
     input.click();
+  };
+
+  // ── Helpers for drag-and-drop folder traversal ──────────────────────
+
+  /** Recursively read all File objects from a dropped directory entry. */
+  const readEntryRecursive = (entry, path = '') => {
+    return new Promise((resolve) => {
+      if (entry.isFile) {
+        entry.file((file) => {
+          // Attach the relative path so uploadFolder can recreate the structure
+          Object.defineProperty(file, 'webkitRelativePath', {
+            value: path + file.name,
+            writable: false,
+          });
+          resolve([file]);
+        }, () => resolve([]));
+      } else if (entry.isDirectory) {
+        const reader = entry.createReader();
+        const allEntries = [];
+
+        // readEntries may return partial results — call until empty
+        const readBatch = () => {
+          reader.readEntries((entries) => {
+            if (entries.length === 0) {
+              Promise.all(
+                allEntries.map((e) => readEntryRecursive(e, path + entry.name + '/'))
+              ).then((results) => resolve(results.flat()));
+            } else {
+              allEntries.push(...entries);
+              readBatch();
+            }
+          }, () => resolve([]));
+        };
+        readBatch();
+      } else {
+        resolve([]);
+      }
+    });
   };
 
   const handleDrop = async (e) => {
@@ -159,20 +252,96 @@ export default function FileBrowser({ view }) {
       } finally {
         setGlobalLoading(false);
       }
+      return;
+    }
+
+    // Detect if any dropped item is a directory
+    const items = e.dataTransfer.items;
+    let hasDirectory = false;
+    const entries = [];
+    if (items) {
+      for (let i = 0; i < items.length; i++) {
+        const entry = items[i].webkitGetAsEntry?.();
+        if (entry) {
+          entries.push(entry);
+          if (entry.isDirectory) hasDirectory = true;
+        }
+      }
+    }
+
+    if (hasDirectory && entries.length > 0) {
+      // ── Folder drop: traverse tree, then use uploadFolder ──
+      const allFiles = [];
+      for (const entry of entries) {
+        const files = await readEntryRecursive(entry);
+        allFiles.push(...files);
+      }
+
+      if (allFiles.length === 0) return;
+
+      const controller = startUploadTask(allFiles.length);
+      try {
+        const result = await api.uploadFolder(allFiles, currentFolderId, {
+          signal: controller.signal,
+          onProgress: (completed, currentFile, errors) => {
+            updateUploadProgress(completed, currentFile, errors);
+          },
+        });
+
+        finishUploadTask();
+        fetchItems();
+
+        if (result.cancelled) {
+          addToast(`Upload interrotto: ${result.completed}/${result.total} file caricati`, 'info');
+        } else if (result.errors.length > 0) {
+          addToast(`${result.errors.length} file non caricati`, 'error');
+        }
+      } catch (err) {
+        console.error('Folder drop upload error:', err);
+        finishUploadTask();
+        fetchItems();
+      }
     } else {
-      const files = e.dataTransfer.files;
-      if (files && files.length > 0) {
-        setGlobalLoading(true, `Caricamento di ${files.length} file in corso...`);
+      // ── Plain file drop ──
+      const files = Array.from(e.dataTransfer.files);
+      if (files.length === 1) {
+        const file = files[0];
+        const controller = startUploadTask(1, { indeterminate: true });
+        updateUploadProgress(0, file.name);
         try {
-          for (let i = 0; i < files.length; i++) {
-            await api.uploadDocument(files[i], currentFolderId);
-          }
-          addToast("File caricati con successo", "success");
+          await api.uploadDocument(file, currentFolderId, { signal: controller.signal });
+          addToast("File caricato con successo", "success");
           fetchItems();
         } catch (err) {
           addToast(`Errore durante il caricamento: ${err.message}`, "error");
         } finally {
-          setGlobalLoading(false);
+          finishUploadTask();
+        }
+      } else if (files.length > 1) {
+        const controller = startUploadTask(files.length);
+        try {
+          let completed = 0;
+          let errors = 0;
+          for (const file of files) {
+            if (controller.signal.aborted) break;
+            updateUploadProgress(completed, file.name, errors);
+            try {
+              await api.uploadDocument(file, currentFolderId, { signal: controller.signal });
+            } catch (err) {
+              if (err.name === 'AbortError') break;
+              errors++;
+            }
+            completed++;
+            updateUploadProgress(completed, file.name, errors);
+          }
+          finishUploadTask();
+          fetchItems();
+          if (errors > 0) {
+            addToast(`${errors} file non caricati`, 'error');
+          }
+        } catch (err) {
+          finishUploadTask();
+          fetchItems();
         }
       }
     }
@@ -301,6 +470,13 @@ export default function FileBrowser({ view }) {
               <button className="btn-primary" onClick={handleUploadFolderClick}>
                 <Upload size={16} /> Upload Folder
               </button>
+              <button
+                className="btn-primary btn-ai"
+                onClick={handleUploadWithAIClick}
+                title="L'agente AI classifica e archivia il file nella cartella più appropriata"
+              >
+                <Sparkles size={16} /> Upload File with AI
+              </button>
             </>
           )}
         </div>
@@ -334,6 +510,7 @@ export default function FileBrowser({ view }) {
               isShared={view === 'shared'}
               currentFolderPermission={currentFolderPermission}
               currentUser={currentUser}
+              onPreview={() => setPreviewDoc(d)}
               onDownload={() => handleDownload(d)}
               onDelete={() => handleDelete(d.id, 'document')}
               onShare={() => setShareModalData({ id: d.id, type: 'document' })}
@@ -367,6 +544,13 @@ export default function FileBrowser({ view }) {
         />
       )}
 
+      {previewDoc && (
+        <PreviewModal
+          document={previewDoc}
+          onClose={() => setPreviewDoc(null)}
+        />
+      )}
+
       <PromptDialog
         isOpen={promptDialog.open}
         title={promptDialog.title}
@@ -392,7 +576,7 @@ export default function FileBrowser({ view }) {
   );
 }
 
-function ItemCard({ item, type, isShared, currentFolderPermission, currentUser, isAgentModified, onNavigate, onDownload, onDelete, onShare, onMove, onDragMove }) {
+function ItemCard({ item, type, isShared, currentFolderPermission, currentUser, isAgentModified, onNavigate, onPreview, onDownload, onDelete, onShare, onMove, onDragMove }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const menuRef = useRef(null);
@@ -468,7 +652,8 @@ function ItemCard({ item, type, isShared, currentFolderPermission, currentUser, 
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      onClick={type === 'folder' ? onNavigate : null}
+      onClick={type === 'folder' ? onNavigate : onPreview}
+      style={type === 'document' && onPreview ? { cursor: 'pointer' } : undefined}
     >
       <div className="item-icon">
         {type === 'folder' ? (

@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from app.routes import auth, folders, documents, permissions, health, history, admin
-from app.routes import email_accounts, agent, branding
+from app.routes import email_accounts, agent, branding, search
 from app.schemas import ErrorResponse
 from app.database import engine, close_db
 from app.middleware import LastActiveMiddleware
@@ -33,6 +33,7 @@ app.include_router(admin.router)
 app.include_router(email_accounts.router)
 app.include_router(agent.router)
 app.include_router(branding.router)
+app.include_router(search.router)
 
 
 @app.exception_handler(RequestValidationError)

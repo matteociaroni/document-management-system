@@ -1,14 +1,25 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Form, File, UploadFile
+import hashlib
+from fastapi import APIRouter, Depends, HTTPException, Query, Form, File, UploadFile, status as http_status
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 from uuid import UUID
 from typing import Optional
 from app.database import get_db
-from app.models import User, Document, Folder, EmailAttachment
-from app.schemas import DocumentUploadRequest, DocumentUploadResponse, DocumentConfirmRequest, DocumentResponse, DownloadUrlResponse, MoveRequest
+from app.models import User, Document, Folder, AgentFile, AgentOperation
+from app.schemas import (
+    DocumentUploadRequest,
+    DocumentUploadResponse,
+    DocumentConfirmRequest,
+    DocumentResponse,
+    DownloadUrlResponse,
+    MoveRequest,
+    AIUploadResponse,
+)
 from app.auth import get_current_user
-from app.storage import generate_upload_url, generate_download_url, get_s3_client, get_bucket_name
+from app.storage import generate_upload_url, generate_download_url, get_s3_client, get_tenant_folder
 from app.permissions_helper import has_permission, has_write_permission
 from fastapi.responses import StreamingResponse
+from app.config import settings
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -80,11 +91,11 @@ async def upload_document(
     
     try:
         s3 = get_s3_client()
-        bucket = get_bucket_name(user.email)
+        bucket = settings.gcp_bucket_name
         try:
             s3.head_bucket(Bucket=bucket)
         except Exception as e:
-            if '404' in str(e):
+            if '404' in str(e) or 'Not Found' in str(e) or 'NoSuchBucket' in str(e):
                 s3.create_bucket(Bucket=bucket)
             else:
                 raise
@@ -98,6 +109,89 @@ async def upload_document(
     return DocumentUploadResponse(document_id=doc.id, upload_url=upload_url)
 
 
+@router.post("/upload-ai", response_model=AIUploadResponse, status_code=http_status.HTTP_202_ACCEPTED)
+async def upload_document_with_ai(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Upload a document and let the agent decide where to file it.
+
+    The classification is asynchronous: the agent worker polls AgentFile
+    records with source='manual_upload' and status='pending', applies the same
+    confidence threshold used for email attachments, and either auto-files
+    the document into the suggested folder or sends it to the user's inbox
+    for manual review.
+    """
+    import os
+    filename = os.path.basename(file.filename) if file.filename else "file"
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty file")
+
+    mime_type = file.content_type or "application/octet-stream"
+    size_bytes = len(content)
+    content_hash = hashlib.sha256(content).hexdigest()
+
+    doc = Document(
+        name=filename,
+        mime_type=mime_type,
+        size_bytes=size_bytes,
+        folder_id=None,
+        owner_id=user.id,
+    )
+    db.add(doc)
+    db.flush()
+
+    try:
+        s3 = get_s3_client()
+        bucket = settings.gcp_bucket_name
+        tenant_folder = get_tenant_folder(user.email)
+        try:
+            s3.head_bucket(Bucket=bucket)
+        except Exception as e:
+            if "404" in str(e) or "NoSuchBucket" in str(e) or "Not Found" in str(e):
+                s3.create_bucket(Bucket=bucket)
+            else:
+                raise
+        s3.put_object(Bucket=bucket, Key=f"{tenant_folder}/{str(doc.id)}", Body=content, ContentType=mime_type)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Upload to storage failed: {e}")
+
+    agent_file = AgentFile(
+        job_id=None,
+        source="manual_upload",
+        filename=filename,
+        mime_type=mime_type,
+        size_bytes=size_bytes,
+        content_hash=content_hash,
+        document_id=doc.id,
+        status="pending",
+        needs_classification=True,
+    )
+    db.add(agent_file)
+    db.flush()
+
+    op = AgentOperation(
+        user_id=user.id,
+        job_id=None,
+        agent_file_id=agent_file.id,
+        operation_type="manual_upload_received",
+        description=f"Upload AI ricevuto: '{filename}' — in attesa di classificazione",
+        details={"mime_type": mime_type, "size_bytes": size_bytes},
+    )
+    db.add(op)
+    db.commit()
+    db.refresh(agent_file)
+
+    return AIUploadResponse(
+        document_id=doc.id,
+        agent_file_id=agent_file.id,
+        status=agent_file.status,
+    )
+
+
 @router.post("/{document_id}/confirm", response_model=DocumentResponse)
 def confirm_document_upload(
     document_id: UUID,
@@ -106,41 +200,68 @@ def confirm_document_upload(
 ):
     """Confirm document upload after file has been uploaded to S3"""
     doc = _get_document_or_404(db, document_id, user, check_permission=False)
-    
+
     if doc.owner_id != user.id:
         raise HTTPException(status_code=403, detail="Only owner can confirm upload")
-    
+
     try:
         s3 = get_s3_client()
-        bucket = get_bucket_name(user.email)
-        obj = s3.head_object(Bucket=bucket, Key=str(doc.id))
+        bucket = settings.gcp_bucket_name
+        tenant_folder = get_tenant_folder(user.email)
+        obj = s3.head_object(Bucket=bucket, Key=f"{tenant_folder}/{str(doc.id)}")
         doc.size_bytes = obj['ContentLength']
+
+        existing = (
+            db.query(AgentFile)
+            .filter(AgentFile.document_id == doc.id)
+            .first()
+        )
+        if not existing:
+            db.add(AgentFile(
+                job_id=None,
+                source="manual_upload",
+                filename=doc.name,
+                mime_type=doc.mime_type,
+                size_bytes=doc.size_bytes,
+                content_hash=None,
+                document_id=doc.id,
+                status="pending",
+                needs_classification=False,
+            ))
+
         db.commit()
         db.refresh(doc)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    
+
     return doc
 
 
 
 @router.get("/{document_id}/download")
-def download_document(document_id: UUID, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def download_document(
+    document_id: UUID,
+    inline: bool = Query(False, description="Serve with Content-Disposition: inline for in-browser preview"),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     doc = _get_document_or_404(db, document_id, user, check_permission=True)
     try:
         s3 = get_s3_client()
-        bucket = get_bucket_name(doc.owner.email)
-        obj = s3.get_object(Bucket=bucket, Key=str(doc.id))
-        
+        bucket = settings.gcp_bucket_name
+        tenant_folder = get_tenant_folder(doc.owner.email)
+        obj = s3.get_object(Bucket=bucket, Key=f"{tenant_folder}/{str(doc.id)}")
+
         def iterfile():
             for chunk in obj['Body'].iter_chunks():
                 if chunk:
                     yield chunk
-                    
+
+        disposition = "inline" if inline else "attachment"
         return StreamingResponse(
             iterfile(),
             media_type=doc.mime_type or "application/octet-stream",
-            headers={"Content-Disposition": f"attachment; filename=\"{doc.name}\""}
+            headers={"Content-Disposition": f"{disposition}; filename=\"{doc.name}\""}
         )
     except Exception as e:
         error_str = str(e)
@@ -170,12 +291,20 @@ def list_documents(
         query = db.query(Document).filter(Document.folder_id == None)
         query = query.filter(Document.owner_id == user.id)
 
-    # Hide documents that are still sitting in the agent inbox awaiting user review
-    inbox_doc_ids = db.query(EmailAttachment.document_id).filter(
-        EmailAttachment.status == "in_inbox",
-        EmailAttachment.document_id.isnot(None),
+    # Hide documents either awaiting user review (in_inbox) or still being
+    # classified by the agent (pending + needs_classification). Direct uploads
+    # sit in the queue with needs_classification=False and must remain visible.
+    hidden_doc_ids = db.query(AgentFile.document_id).filter(
+        AgentFile.document_id.isnot(None),
+        or_(
+            AgentFile.status == "in_inbox",
+            and_(
+                AgentFile.status == "pending",
+                AgentFile.needs_classification.is_(True),
+            ),
+        ),
     )
-    query = query.filter(~Document.id.in_(inbox_doc_ids))
+    query = query.filter(~Document.id.in_(hidden_doc_ids))
 
     return query.limit(limit).offset(offset).all()
 
@@ -200,8 +329,44 @@ def delete_document(document_id: UUID, user: User = Depends(get_current_user), d
         if folder.owner_id != user.id and not has_write_permission(db, user.id, folder_id=doc.folder_id):
             raise HTTPException(status_code=403, detail="No write access to folder")
     
+    owner_id = doc.owner_id
+    owner_email = doc.owner.email
+
+    # Clean up AgentFile records that reference this document so the
+    # agent_worker doesn't keep retrying orphaned pending entries.
+    linked_agent_files = (
+        db.query(AgentFile)
+        .filter(AgentFile.document_id == document_id)
+        .all()
+    )
+    for af in linked_agent_files:
+        # Detach AgentOperation FK references first
+        db.query(AgentOperation).filter(
+            AgentOperation.agent_file_id == af.id
+        ).update({"agent_file_id": None})
+        db.delete(af)
+
+    # Remove the object from the bucket before committing. If storage delete
+    # fails we abort so the document stays visible and the user can retry —
+    # silently leaving an orphan in the bucket is what we're fixing here.
+    # A missing key is treated as success (idempotent delete).
+    try:
+        s3 = get_s3_client()
+        bucket = settings.gcp_bucket_name
+        tenant_folder = get_tenant_folder(owner_email)
+        s3.delete_object(Bucket=bucket, Key=f"{tenant_folder}/{str(document_id)}")
+    except Exception as e:
+        error_str = str(e)
+        if '404' not in error_str and 'NoSuchKey' not in error_str:
+            db.rollback()
+            raise HTTPException(status_code=500, detail=f"Failed to delete file from storage: {e}")
+
     db.delete(doc)
     db.commit()
+
+    # Remove from OpenSearch tenant index (best effort)
+    from app.routes.search import delete_from_index
+    delete_from_index(owner_id, document_id)
 
 
 @router.post("/{document_id}/copy", response_model=DocumentResponse)
@@ -227,20 +392,21 @@ def copy_document(document_id: UUID, req: MoveRequest, user: User = Depends(get_
     
     try:
         s3 = get_s3_client()
-        dest_bucket = get_bucket_name(user.email)
-        src_bucket = get_bucket_name(doc.owner.email)
+        bucket = settings.gcp_bucket_name
+        dest_folder = get_tenant_folder(user.email)
+        src_folder = get_tenant_folder(doc.owner.email)
         
         try:
-            s3.head_bucket(Bucket=dest_bucket)
+            s3.head_bucket(Bucket=bucket)
         except Exception as e:
-            if '404' in str(e) or 'Not Found' in str(e):
-                s3.create_bucket(Bucket=dest_bucket)
+            if '404' in str(e) or 'Not Found' in str(e) or 'NoSuchBucket' in str(e):
+                s3.create_bucket(Bucket=bucket)
             else:
                 raise
                 
-        copy_src = f"{src_bucket}/{doc.id}"
+        copy_src = f"{bucket}/{src_folder}/{doc.id}"
         print(f"DEBUG documents.py CopySource: {copy_src!r}", flush=True)
-        s3.copy_object(CopySource=copy_src, Bucket=dest_bucket, Key=str(new_doc.id))
+        s3.copy_object(CopySource=copy_src, Bucket=bucket, Key=f"{dest_folder}/{str(new_doc.id)}")
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail="Failed to copy file in storage. It may not exist on S3. Error: " + str(e))

@@ -1,0 +1,47 @@
+\begin{titlepage}
+    \centering
+    \vspace*{1.5cm}
+    {\scshape\Large Universit\`a degli Studi --- Corso di Laurea Magistrale\par}
+    \vspace{0.4cm}
+    {\large Scalable and Reliable Systems\par}
+    \vspace{2.0cm}
+    \rule{\linewidth}{0.4pt}\\[0.6cm]
+    {\huge\bfseries Intelligent Document Management System\par}
+    \vspace{0.3cm}
+    {\Large A Reliable, Multi-Tenant Platform with an MCP-Based Agentic Filing Layer\par}
+    \rule{\linewidth}{0.4pt}\\[1.2cm]
+
+    {\large\itshape Relazione tecnica di progetto\par}
+    \vspace{0.4cm}
+    {\large Dominio applicativo: \textbf{Finance \& Enterprise Document Compliance}\par}
+    \vfill
+    \begin{flushleft}
+        \textbf{Repository}: \texttt{document-management-system}\\[4pt]
+        \textbf{Data}: \today
+    \end{flushleft}
+\end{titlepage}
+
+% ---------------------------------------------------------------------------
+%  Abstract
+% ---------------------------------------------------------------------------
+\chapter*{Abstract}
+\addcontentsline{toc}{chapter}{Abstract}
+
+\noindent
+Il presente lavoro descrive la progettazione, l'implementazione e la valutazione
+di un \emph{Document Management System} (DMS) distribuito e multi-tenant, esteso
+con uno strato di \emph{Agentic Operations} basato sul \emph{Model Context Protocol}
+(MCP). Il sistema risolve un problema operativo concreto del dominio
+\emph{Finance \& Enterprise Document Compliance}: l'acquisizione automatica,
+la classificazione e l'archiviazione di documenti amministrativi (fatture,
+contratti, ordini, comunicazioni di compliance) ricevuti via posta elettronica.
+
+La trattazione adotta la struttura prevista dalle linee guida del corso, articolando
+le motivazioni di dominio, l'architettura distribuita, i meccanismi di affidabilit\`a
+e scalabilit\`a, l'osservabilit\`a, i ruoli dell'agente, il design degli MCP server,
+la politica di sicurezza operativa, gli esperimenti di guasto, l'analisi
+SLO--costi--\emph{ROI} e le politiche DevSecOps. Particolare attenzione \`e
+riservata alla separazione fra automazione deterministica, decisione agentica
+e \emph{human-in-the-loop}, alla gestione delle azioni ad alto impatto e
+alla riduzione del rischio di allucinazione tramite \emph{structured outputs}
+e soglie di confidenza.

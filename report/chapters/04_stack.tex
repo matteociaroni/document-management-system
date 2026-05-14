@@ -1,0 +1,178 @@
+\chapter{Stack tecnologico}
+\label{chap:stack}
+
+Questa sezione motiva le scelte tecnologiche adottate per ciascun componente, descrivendo
+le alternative considerate e i criteri di selezione.
+
+\section{Backend: FastAPI}
+\label{sec:stack_backend}
+
+Il backend \`e sviluppato in \textbf{Python 3.9} con il framework \textbf{FastAPI}. Le
+alternative principali considerate erano Django e Flask.
+
+\textbf{Django} offre una soluzione completa e matura (ORM, admin panel, auth integrata),
+ma la sua architettura monolitica mal si adatta a un sistema distribuito in cui la logica
+applicativa \`e intenzionalmente distribuita tra microservizi. La presenza di molte
+funzionalit\`a non necessarie aumenta anche la superficie di attacco.
+
+\textbf{Flask} \`e estremamente leggero e flessibile, ma richiede l'integrazione manuale
+di validazione dei dati, documentazione API e gestione asincrona, aggiungendo complessit\`a
+senza benefici tangibili rispetto a FastAPI.
+
+\textbf{FastAPI} \`e stato scelto per:
+\begin{itemize}[leftmargin=*]
+    \item Supporto nativo alla programmazione asincrona (\texttt{async/await}),
+          fondamentale per I/O concorrente (database, S3, chiamate esterne).
+    \item Validazione automatica degli input tramite \textbf{Pydantic v2}: ogni
+          schema di request/response \`e definito come modello Python con type hints.
+    \item Generazione automatica della documentazione OpenAPI/Swagger UI
+          all'endpoint \texttt{/docs}.
+    \item Compatibilit\`a nativa con \textbf{SQLAlchemy 2} e il pattern
+          dependency injection tramite \texttt{Depends}.
+    \item Gestione centralizzata degli errori tramite \texttt{exception\_handler}:
+          gli errori di validazione producono risposte normalizzate.
+\end{itemize}
+
+Il server WSGI/ASGI utilizzato \`e \textbf{Uvicorn} con driver \textbf{psycopg3}
+(\texttt{psycopg[binary]}) per la connessione asincrona a PostgreSQL.
+
+\section{Database relazionale: PostgreSQL 16}
+\label{sec:stack_db}
+
+Per la gestione dei dati strutturati \`e stato adottato \textbf{PostgreSQL 16}.
+L'alternativa principale era MySQL; SQLite \`e stato scartato a priori per assenza
+di supporto alla concorrenza ad alto carico.
+
+\textbf{MySQL} \`e una soluzione diffusa e stabile, con buone prestazioni nelle operazioni
+di lettura, ma con funzionalit\`a pi\`u limitate nella gestione di tipi complessi e nella
+ricerca full-text nativa.
+
+La scelta di \textbf{PostgreSQL} \`e motivata da:
+\begin{itemize}[leftmargin=*]
+    \item Supporto nativo al tipo \textbf{JSONB} per la colonna \texttt{details} della
+          tabella \texttt{agent\_operations}, che accoglie strutture arbitrarie per ogni
+          tipo di evento agentico.
+    \item Generazione di UUID tramite l'estensione \textbf{pgcrypto}
+          (\texttt{gen\_random\_uuid()}), evitando la dipendenza da sequenze incrementali.
+    \item Supporto a \textbf{transazioni ACID} complete, essenziale per garantire la
+          consistenza delle operazioni di filing che toccano pi\`u tabelle.
+    \item Ricca espressivit\`a SQL: \texttt{CHECK} constraint, \texttt{ON DELETE CASCADE},
+          indici compositi e copertura.
+    \item \textbf{SQLAlchemy 2} fornisce un ORM maturo e type-safe con lazy loading
+          controllato e session management esplicito.
+\end{itemize}
+
+\section{Object storage: SeaweedFS}
+\label{sec:stack_s3}
+
+Per la gestione dei file binari (documenti e \texttt{.eml}) \`e stato adottato
+\textbf{SeaweedFS}, un object store S3-compatibile open source.
+
+Le alternative considerate erano:
+\begin{description}[leftmargin=*]
+    \item[S3 gestito (AWS, GCP, Azure)] Lo standard industriale in termini di affidabilit\`a
+          e scalabilit\`a, ma introduce dipendenza da provider esterno e costi variabili
+          difficilmente predicibili in fase di sviluppo.
+    \item[MinIO] Semplice da integrare e S3-compatibile, ma il progetto ha modificato la
+          propria licenza (AGPL) rendendola incompatibile con molti scenari SaaS.
+    \item[Ceph] Soluzione enterprise con alta resilienza e funzionalit\`a avanzate, ma con
+          complessit\`a operativa elevata (richiede cluster dedicato, expertise specializzata).
+    \item[Garage] Alternativa recente orientata alla resilienza distribuita e geografica,
+          ma con ecosistema ancora immaturo.
+\end{description}
+
+\textbf{SeaweedFS} \`e stato scelto per il bilanciamento tra semplicità operativa, prestazioni
+e compatibilit\`a S3. L'interfaccia standard S3 (tramite boto3) garantisce la possibilit\`a di
+migrare verso un provider gestito senza modifiche all'applicazione.
+
+Un vantaggio architetturale chiave \`e l'utilizzo di \textbf{presigned URL}: il dato binario
+non transita mai attraverso il backend, che agisce solo come piano di controllo. Questo riduce
+il traffico verso il backend, abbassa la latenza percepita dall'utente e disaccoppia lo scaling
+del backend da quello dello storage.
+
+\section{Estrazione testo: Apache Tika}
+\label{sec:stack_tika}
+
+Per l'estrazione di testo da documenti binari eterogenei \`e stato adottato
+\textbf{Apache Tika}, eseguito come container REST.
+
+L'alternativa sarebbe stata l'integrazione di librerie specifiche per formato:
+\texttt{pypdf2}/\texttt{pdfplumber} per PDF, \texttt{python-docx} per DOCX,
+\texttt{openpyxl} per XLSX. Questo approccio richiederebbe la manutenzione di
+parser multipli con comportamenti disomogenei, soprattutto per edge case (PDF con
+encoding non standard, documenti protetti, formati ibridi).
+
+\textbf{Apache Tika} offre un'interfaccia unificata per oltre 1000 tipi di file,
+semplificando la pipeline di elaborazione. Nel sistema viene invocato tramite HTTP PUT
+con timeout di 30~s per prevenire hang su file corrotti o documenti molto grandi. I formati
+supportati rilevanti per il dominio sono: PDF, DOCX, XLSX, ODT, TXT, RTF.
+
+\section{Ricerca: OpenSearch}
+\label{sec:stack_opensearch}
+
+Per le funzionalit\`a di ricerca avanzata \`e stato adottato \textbf{OpenSearch 2.18.0},
+motore di ricerca open source derivato da Elasticsearch.
+
+La ricerca full-text nativa di PostgreSQL (\texttt{tsvector}/\texttt{tsquery}) \`e stata
+scartata per la difficolt\`a di combinare ricerca testuale e ricerca vettoriale in modo
+efficiente su dataset di grandi dimensioni. Elasticsearch sarebbe stato equivalente ma
+ha modificato la propria licenza verso un modello misto non completamente open source.
+
+\textbf{OpenSearch} offre:
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Full-text search} con analizzatore \texttt{standard} sul campo \texttt{text}.
+    \item \textbf{Ricerca vettoriale k-NN} tramite \textsc{HNSW} (Hierarchical Navigable
+          Small World) con metrica \texttt{cosinesimil} su embedding a 384 dimensioni.
+    \item \textbf{Indicizzazione per tenant}: ogni utente ha un proprio indice
+          \texttt{documents\_\{user\_id\_no\_hyphens\}} che garantisce isolamento e
+          possibilit\`a di scaling indipendente.
+\end{itemize}
+
+Gli embedding sono generati dal modello
+\textbf{paraphrase-multilingual-MiniLM-L12-v2} di \texttt{sentence-transformers},
+scelto per il supporto multilingue (rilevante in contesti aziendali italiani ed europei)
+e per le dimensioni contenute del vettore (384 vs.\ 768 o 1536 di modelli pi\`u grandi).
+
+\section{Classificazione: Atomic Agents e Instructor}
+\label{sec:stack_agent}
+
+L'agente di classificazione \`e implementato con il framework \textbf{Atomic Agents},
+che fornisce un'architettura modulare per agenti LLM con schema di input/output
+tipizzato tramite Pydantic.
+
+La libreria \textbf{instructor} \`e usata come adattatore per forzare l'output del modello
+LLM a conformarsi allo schema Pydantic \texttt{FilingOutput}. Questo approccio elimina
+la necessit\`a di parsing manuale dell'output e garantisce che risposte strutturalmente
+non conformi vengano automaticamente rigenerate.
+
+Il client LLM \`e configurato tramite \textbf{API OpenAI-compatible} puntando a un
+endpoint configurabile tramite variabile d'ambiente \texttt{BASE\_URL}, rendendo il
+sistema indipendente dal provider. Il modello di default \`e
+\textbf{claude-sonnet-4-6} (Anthropic), accessibile tramite endpoint compatibile.
+
+\section{Email polling: IMAPClient e APScheduler}
+\label{sec:stack_email}
+
+La componente di polling email usa:
+\begin{itemize}[leftmargin=*]
+    \item \textbf{IMAPClient}: libreria Python per il protocollo IMAP (RFC 3501) con
+          supporto nativo a SSL/TLS e IMAP UID (meccanismo di watermarking).
+    \item \textbf{APScheduler 3.11.2}: scheduler in-process per l'esecuzione periodica
+          del loop di polling, con supporto per intervalli configurabili per account.
+\end{itemize}
+
+\section{Frontend: React e Vite}
+\label{sec:stack_frontend}
+
+L'interfaccia utente \`e una \textbf{Single Page Application} sviluppata con \textbf{React 18}
+e il build tool \textbf{Vite 5}, scelto per i tempi di build significativamente inferiori
+rispetto a \texttt{create-react-app}/Webpack.
+
+Le scelte di librerie sono volutamente minimaliste: \texttt{react-router-dom} per il routing,
+\texttt{lucide-react} per le icone, CSS vanilla per lo stile. L'assenza di state manager
+esterno (Redux, Zustand) \`e una scelta deliberata: la complessit\`a dello stato dell'applicazione
+non giustifica il costo di onboarding di tali librerie.
+
+La build \`e prodotta con un Dockerfile \textbf{multi-stage}: uno stage Node per la compilazione
+e uno stage Nginx per servire i file statici risultanti, riducendo la dimensione dell'immagine
+finale e la superficie di attacco.

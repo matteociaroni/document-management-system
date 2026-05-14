@@ -154,7 +154,7 @@ export const api = {
     return folder;
   },
 
-  async uploadDocument(file, folderId = null) {
+  async uploadDocument(file, folderId = null, { signal } = {}) {
     // Step 1: Request presigned URL from backend
     const formData = new FormData();
     formData.append('file', file);
@@ -166,7 +166,8 @@ export const api = {
     const uploadRes = await fetch(`${API_URL}/documents/upload`, {
       method: 'POST',
       headers: headers,
-      body: formData
+      body: formData,
+      signal,
     });
     const uploadData = await handleResponse(uploadRes);
     const documentId = uploadData.document_id;
@@ -178,7 +179,8 @@ export const api = {
       body: file,
       headers: {
         'Content-Type': file.type || 'application/octet-stream'
-      }
+      },
+      signal,
     });
     if (!fileUploadRes.ok) {
       throw new Error(`File upload to S3 failed: ${fileUploadRes.status}`);
@@ -187,7 +189,8 @@ export const api = {
     // Step 3: Confirm upload with backend
     const confirmRes = await fetch(`${API_URL}/documents/${documentId}/confirm`, {
       method: 'POST',
-      headers: getHeaders()
+      headers: getHeaders(),
+      signal,
     });
     await handleResponse(confirmRes);
 
@@ -195,21 +198,51 @@ export const api = {
     return documentId;
   },
 
-  async uploadFolder(files, rootFolderId = null) {
+  async uploadDocumentWithAI(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const headers = getHeaders();
+    delete headers['Content-Type']; // browser sets the multipart boundary
+
+    const res = await fetch(`${API_URL}/documents/upload-ai`, {
+      method: 'POST',
+      headers,
+      body: formData
+    });
+    const data = await handleResponse(res);
+
+    this.addHistory(`Uploaded "${file.name}" with AI filing`);
+    return data; // { document_id, agent_file_id, status }
+  },
+
+  async uploadFolder(files, rootFolderId = null, { signal, onProgress } = {}) {
     const folderMap = {}; // Maps folder paths to folder IDs
+    const errors = [];
+    let completed = 0;
 
     for (const file of files) {
+      // Check if the upload was cancelled
+      if (signal && signal.aborted) {
+        break;
+      }
+
       try {
         // Get the folder path from the file
         const webkitPath = file.webkitRelativePath;
         if (!webkitPath) {
           // If no webkitRelativePath, fall back to individual upload
-          await this.uploadDocument(file, rootFolderId);
+          if (onProgress) onProgress(completed, file.name, errors.length);
+          await this.uploadDocument(file, rootFolderId, { signal });
+          completed++;
+          if (onProgress) onProgress(completed, file.name, errors.length);
           continue;
         }
 
         const pathParts = webkitPath.split('/');
         const fileName = pathParts[pathParts.length - 1]; // Just the filename
+
+        if (onProgress) onProgress(completed, fileName, errors.length);
 
         // Build folder structure
         let currentFolderId = rootFolderId;
@@ -229,12 +262,14 @@ export const api = {
                   body: JSON.stringify({
                     name: folderName,
                     parent_id: currentFolderId
-                  })
+                  }),
+                  signal,
                 });
                 const folderData = await handleResponse(createRes);
                 folderMap[partialPath] = folderData.id;
                 currentFolderId = folderData.id;
               } catch (err) {
+                if (err.name === 'AbortError') break;
                 console.error(`Failed to create folder ${folderName}:`, err);
                 throw err;
               }
@@ -248,15 +283,39 @@ export const api = {
 
         // Upload file to the correct folder with correct name
         if (file.size > 0) { // Skip empty files
-          await this.uploadDocument(file, currentFolderId);
+          await this.uploadDocument(file, currentFolderId, { signal });
         }
+        completed++;
+        if (onProgress) onProgress(completed, fileName, errors.length);
       } catch (err) {
+        if (err.name === 'AbortError') break;
         console.error(`Failed to upload file ${file.name}:`, err);
-        throw new Error(`Failed to upload: ${err.message}`);
+        errors.push(file.name);
+        completed++;
+        if (onProgress) onProgress(completed, file.name, errors.length);
+        // Continue with remaining files instead of aborting
       }
     }
 
-    this.addHistory(`Uploaded folder with ${files.length} files`);
+    const wasCancelled = signal && signal.aborted;
+    this.addHistory(
+      wasCancelled
+        ? `Upload interrotto: ${completed}/${files.length} file caricati`
+        : `Uploaded folder with ${completed - errors.length}/${files.length} files`
+    );
+
+    return { completed, total: files.length, errors, cancelled: wasCancelled };
+  },
+
+  async previewDocument(documentId) {
+    const res = await fetch(`${API_URL}/documents/${documentId}/download?inline=true`, { headers: getHeaders() });
+    if (!res.ok) {
+      const errorText = await res.text();
+      throw new Error(`Preview failed: ${res.status} ${errorText}`);
+    }
+    const blob = await res.blob();
+    const mimeType = res.headers.get('Content-Type') || blob.type || 'application/octet-stream';
+    return { blobUrl: window.URL.createObjectURL(blob), mimeType, size: blob.size };
   },
 
   async downloadDocument(documentId, filename) {
@@ -370,16 +429,16 @@ export const api = {
     return await handleResponse(res);
   },
 
-  async acceptProposal(attachmentId) {
-    const res = await fetch(`${API_URL}/agent/proposals/${attachmentId}/accept`, {
+  async acceptProposal(proposalId) {
+    const res = await fetch(`${API_URL}/agent/proposals/${proposalId}/accept`, {
       method: 'POST',
       headers: getHeaders()
     });
     return await handleResponse(res);
   },
 
-  async moveProposal(attachmentId, folderId) {
-    const res = await fetch(`${API_URL}/agent/proposals/${attachmentId}/move`, {
+  async moveProposal(proposalId, folderId) {
+    const res = await fetch(`${API_URL}/agent/proposals/${proposalId}/move`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ folder_id: folderId })
@@ -387,12 +446,20 @@ export const api = {
     return await handleResponse(res);
   },
 
-  async rejectProposal(attachmentId) {
-    const res = await fetch(`${API_URL}/agent/proposals/${attachmentId}/reject`, {
+  async rejectProposal(proposalId) {
+    const res = await fetch(`${API_URL}/agent/proposals/${proposalId}/reject`, {
       method: 'POST',
       headers: getHeaders()
     });
     return await handleResponse(res);
+  },
+
+  async deleteProposal(proposalId) {
+    const res = await fetch(`${API_URL}/agent/proposals/${proposalId}`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    });
+    if (res.status !== 204) await handleResponse(res);
   },
 
   // Admin capabilities
@@ -513,6 +580,13 @@ export const api = {
       method: 'DELETE',
       headers: getHeaders()
     });
+    return await handleResponse(res);
+  },
+
+  // Search
+  async searchDocuments(query, limit = 20, offset = 0) {
+    const params = new URLSearchParams({ q: query, limit, offset });
+    const res = await fetch(`${API_URL}/search?${params}`, { headers: getHeaders() });
     return await handleResponse(res);
   }
 };

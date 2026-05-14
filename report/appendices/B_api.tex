@@ -1,0 +1,79 @@
+\chapter{Endpoint REST principali}
+\label{app:api}
+
+\begin{longtable}{p{0.32\linewidth} p{0.14\linewidth} p{0.47\linewidth}}
+\toprule
+\textbf{Path} & \textbf{Metodo} & \textbf{Note} \\
+\midrule
+\endhead
+\texttt{/auth/register}                       & POST   & Registrazione; primo utente del dominio diventa \texttt{DOMAIN\_ADMIN}. \\
+\texttt{/auth/login}                          & POST   & Restituisce JWT firmato HS256, scadenza 30~min. \\
+\texttt{/auth/me}                             & GET    & Profilo dell'utente autenticato. \\
+\texttt{/auth/logout}                         & POST   & Invalidazione lato client (stateless). \\
+\midrule
+\texttt{/health}                              & GET    & Probe liveness/readiness K8s. Ritorna 200/503. \\
+\midrule
+\texttt{/folders}                             & POST   & Crea cartella con \texttt{parent\_id} opzionale. \\
+\texttt{/folders}                             & GET    & Lista cartelle (paginata, filtrabile per \texttt{parent\_id}). \\
+\texttt{/folders/\{id\}}                      & GET    & Dettagli cartella. \\
+\texttt{/folders/\{id\}}                      & DELETE & Cancellazione ricorsiva (DB + S3). \\
+\texttt{/folders/\{id\}/move}                 & PATCH  & Spostamento a nuovo parent. \\
+\texttt{/folders/\{id\}/copy}                 & POST   & Copia ricorsiva struttura + file S3. \\
+\midrule
+\texttt{/documents/upload}                    & POST   & Crea record + restituisce presigned URL S3. \\
+\texttt{/documents/upload-ai}                 & POST   & Upload con classificazione AI asincrona (202). \\
+\texttt{/documents/\{id\}/confirm}            & POST   & Finalizza upload: imposta \texttt{size\_bytes}. \\
+\texttt{/documents}                           & GET    & Lista documenti (paginata). \\
+\texttt{/documents/\{id\}}                    & GET    & Metadati documento. \\
+\texttt{/documents/\{id\}/download}           & GET    & Download in streaming. \\
+\texttt{/documents/\{id\}}                    & DELETE & Cancellazione DB + S3. \\
+\midrule
+\texttt{/permissions}                         & POST   & Condividi risorsa per \texttt{user\_id}. \\
+\texttt{/permissions/share}                   & POST   & Condividi per email (VIEWER o EDITOR). \\
+\texttt{/permissions}                         & GET    & Lista permessi concessi all'utente corrente. \\
+\texttt{/permissions/\{id\}}                  & DELETE & Revoca permesso (solo il proprietario). \\
+\midrule
+\texttt{/email-accounts}                      & POST   & Aggiunge account IMAP. \\
+\texttt{/email-accounts}                      & GET    & Lista account dell'utente. \\
+\texttt{/email-accounts/\{id\}}               & GET    & Dettagli account. \\
+\texttt{/email-accounts/\{id\}}               & PATCH  & Aggiorna configurazione. \\
+\texttt{/email-accounts/\{id\}}               & DELETE & Cancella account e job associati. \\
+\texttt{/email-accounts/\{id\}/test}          & POST   & Testa connessione IMAP. \\
+\midrule
+\texttt{/agent/operations}                    & GET    & Timeline operazioni agentiche. \\
+\texttt{/agent/proposals}                     & GET    & Inbox delle proposte in attesa. \\
+\texttt{/agent/proposals/\{id\}/accept}       & POST   & Accetta proposta agente. \\
+\texttt{/agent/proposals/\{id\}/move}         & POST   & Override proposta: cartella diversa. \\
+\texttt{/agent/proposals/\{id\}/reject}       & POST   & Rigetta proposta. \\
+\midrule
+\texttt{/search}                              & GET    & Ricerca full-text + k-NN su OpenSearch. \\
+\midrule
+\texttt{/history}                             & POST   & Registra azione utente. \\
+\texttt{/history}                             & GET    & Recupera log attivit\`a utente. \\
+\midrule
+\texttt{/admin/metrics}                       & GET    & Statistiche aggregate dominio (DOMAIN\_ADMIN). \\
+\texttt{/admin/users/\{id\}/status}           & PATCH  & Abilita/disabilita utente (DOMAIN\_ADMIN). \\
+\texttt{/admin/users/\{id\}/role}             & PATCH  & Cambia ruolo utente (DOMAIN\_ADMIN). \\
+\midrule
+\texttt{/branding}                            & GET    & Branding del dominio corrente. \\
+\texttt{/branding}                            & PATCH  & Aggiorna branding (DOMAIN\_ADMIN). \\
+\texttt{/branding/logo}                       & POST   & Carica logo dominio (DOMAIN\_ADMIN). \\
+\bottomrule
+\caption{Endpoint REST esposti dal backend.}
+\label{tab:endpoints_full}
+\end{longtable}
+
+\section*{Tool MCP esposti}
+
+\begin{longtable}{p{0.28\linewidth} p{0.30\linewidth} p{0.34\linewidth}}
+\toprule
+\textbf{Tool} & \textbf{Argomenti} & \textbf{Semantica} \\
+\midrule
+\endhead
+\texttt{list\_folders}   & \texttt{user\_id}, \texttt{parent\_id?} & Cartelle del tenant (root o sub-folders). \\
+\texttt{list\_documents} & \texttt{user\_id}, \texttt{folder\_id?} & Documenti in una cartella o in root. \\
+\texttt{get\_folder}     & \texttt{user\_id}, \texttt{folder\_id}  & Dettagli di una singola cartella. \\
+\bottomrule
+\caption{Tool MCP esposti --- tutti read-only e tenant-scoped.}
+\label{tab:mcp_tools}
+\end{longtable}

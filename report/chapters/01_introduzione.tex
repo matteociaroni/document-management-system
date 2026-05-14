@@ -1,0 +1,76 @@
+\chapter{Introduzione e contesto}
+\label{chap:introduzione}
+
+\section{Motivazione}
+\label{sec:motivazione}
+
+La gestione documentale aziendale rappresenta un caso paradigmatico in cui
+l'affidabilit\`a operativa, la compliance normativa e l'efficienza dei processi
+si intrecciano. In particolare, le imprese che operano in regime di fatturazione
+elettronica (B2B/B2G) devono trattare flussi continuativi di documenti
+fiscali, contrattuali e amministrativi in arrivo da molteplici canali, con
+vincoli di tracciabilit\`a, integrit\`a, riservatezza e conservazione a lungo
+termine. La gestione manuale di tali flussi si traduce sistematicamente in
+ritardi di registrazione, errori di classificazione, smarrimento di allegati e
+violazioni dei termini di pagamento.
+
+L'introduzione di capacit\`a \emph{agentiche} basate su \emph{Large Language Models}
+(LLM) consente di automatizzare il triage e la classificazione semantica dei
+documenti, ma introduce nuove classi di rischio: allucinazioni, costi di
+inferenza, perdita di accountability, azioni irreversibili eseguite con bassa
+confidenza. Il progetto affronta questo trade-off costruendo un sistema in cui
+l'agente \`e un \emph{operational assistant} vincolato da \emph{guardrail}
+espliciti e sempre sottoposto, nei casi ambigui, ad approvazione umana.
+
+\section{Obiettivi}
+\label{sec:obiettivi}
+
+Gli obiettivi del progetto, coerenti con i requisiti del corso, sono i seguenti:
+
+\begin{itemize}[leftmargin=*]
+    \item progettare un servizio distribuito \emph{scalabile} e \emph{affidabile}
+          per la gestione di documenti aziendali;
+    \item integrare uno \emph{strato operativo agentico}, basato su MCP, capace
+          di assolvere a ruoli operativi distinti (interpretazione del contenuto,
+          classificazione, escalation);
+    \item definire una politica di sicurezza operativa esplicita che disciplini
+          azioni automatiche, advisory e \emph{human-in-the-loop};
+    \item dimostrare il comportamento del sistema in condizioni di fallimento
+          controllato, con particolare riferimento a \emph{graceful degradation},
+          \emph{budget compliance} e \emph{Recovery Time Objective}.
+\end{itemize}
+
+\section{Sintesi dei contributi}
+\label{sec:contributi}
+
+Il sistema realizzato integra:
+\begin{enumerate}[leftmargin=*]
+    \item un'architettura a microservizi containerizzata con \emph{S3-compatible object
+          storage} (\textsc{SeaweedFS}) e \textsc{PostgreSQL} come piano dei metadati;
+    \item un \emph{poller IMAP} con scheduling differenziato per utenti attivi e inattivi,
+          idempotente sull'\textsc{UID} di messaggio;
+    \item un \emph{agent worker} basato su \emph{Atomic Agents} e \emph{instructor},
+          che produce \emph{structured outputs} e applica una soglia di confidenza per la
+          filiazione automatica;
+    \item un \emph{MCP server} che espone l'albero delle cartelle e l'inventario
+          documentale al solo livello di \emph{read-only telemetry};
+    \item una politica di sicurezza che instrada in \emph{inbox} umano ogni
+          classificazione a bassa confidenza, garantendo reversibilit\`a totale delle
+          decisioni dell'agente.
+\end{enumerate}
+
+\section{Struttura del documento}
+\label{sec:struttura}
+
+Il report \`e organizzato come segue. Il \Cref{chap:servizio} definisce il servizio,
+gli utenti e gli scenari di guasto. Il \Cref{chap:architettura} descrive l'architettura
+a microservizi e i flussi principali. Il \Cref{chap:stack} motiva le scelte tecnologiche.
+Il \Cref{chap:database} dettaglia lo schema relazionale. Il \Cref{chap:api} documenta
+le API REST esposte. Il \Cref{chap:agentico} approfondisce il layer agentico, il protocollo
+MCP e la safety policy. Il \Cref{chap:sicurezza} tratta l'autenticazione, la crittografia
+e l'isolamento multi-tenant. Il \Cref{chap:reliability} analizza i meccanismi di affidabilit\`a
+e scalabilit\`a. Il \Cref{chap:observability} descrive logging, health check e audit trail.
+Il \Cref{chap:devsecops} tratta la pipeline CI/CD e le pratiche DevSecOps. Il
+\Cref{chap:testing} documenta la strategia di test. Il \Cref{chap:roi} presenta l'analisi
+SLO, costi e Return on Agent. Il \Cref{chap:failure} analizza il comportamento del sistema
+sotto condizioni degradate. Il \Cref{chap:conclusioni} riassume e prospetta gli sviluppi futuri.

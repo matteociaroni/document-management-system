@@ -165,11 +165,12 @@ CREATE INDEX idx_email_jobs_status ON email_jobs (status);
 CREATE INDEX idx_email_jobs_account_id ON email_jobs (email_account_id);
 
 -- -----------------------------
--- EMAIL ATTACHMENTS
+-- AGENT FILES
 -- -----------------------------
-CREATE TABLE email_attachments (
+CREATE TABLE agent_files (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
-    job_id UUID NOT NULL REFERENCES email_jobs (id) ON DELETE CASCADE,
+    job_id UUID REFERENCES email_jobs (id) ON DELETE CASCADE,
+    source VARCHAR(20) NOT NULL DEFAULT 'email',
     filename VARCHAR(255) NOT NULL,
     mime_type VARCHAR(100),
     size_bytes BIGINT,
@@ -180,25 +181,37 @@ CREATE TABLE email_attachments (
     document_id UUID REFERENCES documents (id) ON DELETE SET NULL,
     status VARCHAR(20) DEFAULT 'pending',
     auto_filed BOOLEAN DEFAULT FALSE,
+    needs_classification BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMP
     WITH
         TIME ZONE DEFAULT now (),
-        CONSTRAINT chk_attachment_status CHECK (
+        CONSTRAINT chk_agent_file_status CHECK (
             status IN (
                 'pending',
                 'auto_filed',
                 'in_inbox',
                 'confirmed',
-                'rejected'
+                'rejected',
+                'indexed',
+                'failed'
             )
+        ),
+        CONSTRAINT chk_agent_file_source CHECK (
+            source IN ('email', 'manual_upload')
+        ),
+        CONSTRAINT chk_agent_file_source_has_job CHECK (
+            (source = 'email' AND job_id IS NOT NULL)
+            OR (source = 'manual_upload' AND job_id IS NULL)
         )
 );
 
-CREATE INDEX idx_email_attachments_job_id ON email_attachments (job_id);
+CREATE INDEX idx_agent_files_job_id ON agent_files (job_id);
 
-CREATE INDEX idx_email_attachments_status ON email_attachments (status);
+CREATE INDEX idx_agent_files_status ON agent_files (status);
 
-CREATE INDEX idx_email_attachments_content_hash ON email_attachments (content_hash);
+CREATE INDEX idx_agent_files_content_hash ON agent_files (content_hash);
+
+CREATE INDEX idx_agent_files_source_status ON agent_files (source, status);
 
 -- -----------------------------
 -- AGENT OPERATIONS
@@ -207,7 +220,7 @@ CREATE TABLE agent_operations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
     user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     job_id UUID REFERENCES email_jobs (id),
-    attachment_id UUID REFERENCES email_attachments (id),
+    agent_file_id UUID REFERENCES agent_files (id),
     operation_type VARCHAR(50) NOT NULL,
     description TEXT NOT NULL,
     details JSONB,
@@ -221,6 +234,7 @@ CREATE TABLE agent_operations (
                 'auto_filed',
                 'sent_to_inbox',
                 'duplicate_skipped',
+                'manual_upload_received',
                 'error'
             )
         )
