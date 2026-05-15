@@ -1,5 +1,6 @@
 import logging
 import httpx
+import html
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 import instructor
@@ -91,11 +92,15 @@ async def send_telegram_alert(log_text: str, cause: str, solution: str, severity
     }
     emoji = emoji_map.get(severity.upper(), "🚨")
     
+    safe_log = html.escape(log_text[:500])
+    safe_cause = html.escape(cause)
+    safe_solution = html.escape(solution)
+    
     message = (
         f"{emoji} <b>K3s Alert - Severity: {severity.upper()}</b> {emoji}\n\n"
-        f"<b>Log:</b>\n<pre>{log_text[:500]}</pre>\n\n"
-        f"<b>Cause:</b>\n{cause}\n\n"
-        f"<b>Solution:</b>\n{solution}"
+        f"<b>Log:</b>\n<pre>{safe_log}</pre>\n\n"
+        f"<b>Cause:</b>\n{safe_cause}\n\n"
+        f"<b>Solution:</b>\n{safe_solution}"
     )
     
     payload = {
