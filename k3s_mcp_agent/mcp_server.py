@@ -1,6 +1,6 @@
 import logging
-import requests
-from openai import OpenAI
+import httpx
+from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 import instructor
 from mcp.server.fastmcp import FastMCP
@@ -26,14 +26,14 @@ class LogAnalysisResult(BaseModel):
     solution: str = Field(..., description="A proposed solution or actionable step to fix the error.")
 
 def _get_llm_client():
-    client = OpenAI(
+    client = AsyncOpenAI(
         api_key=settings.custom_api_key or "no-key",
         base_url=settings.base_url or None,
     )
     return instructor.from_openai(client)
 
 @mcp.tool()
-def analyze_k3s_log(log_text: str) -> dict:
+async def analyze_k3s_log(log_text: str) -> dict:
     """
     Analyze a K3s or Kubernetes log entry to determine the root cause and propose a solution.
     Returns a dictionary with 'cause' and 'solution'.
@@ -42,7 +42,7 @@ def analyze_k3s_log(log_text: str) -> dict:
     client = _get_llm_client()
     
     try:
-        result = client.chat.completions.create(
+        result = await client.chat.completions.create(
             model=settings.model_name,
             response_model=LogAnalysisResult,
             messages=[
@@ -72,7 +72,7 @@ def analyze_k3s_log(log_text: str) -> dict:
         }
 
 @mcp.tool()
-def send_telegram_alert(log_text: str, cause: str, solution: str, severity: str = "HIGH") -> str:
+async def send_telegram_alert(log_text: str, cause: str, solution: str, severity: str = "HIGH") -> str:
     """
     Send an alert to the configured Telegram bot containing the log, cause, and solution.
     Returns a success or error message.
@@ -105,8 +105,9 @@ def send_telegram_alert(log_text: str, cause: str, solution: str, severity: str 
     }
     
     try:
-        resp = requests.post(url, json=payload, timeout=10)
-        resp.raise_for_status()
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(url, json=payload, timeout=10.0)
+            resp.raise_for_status()
         logger.info("Telegram alert sent successfully.")
         return "Success: Alert sent to Telegram."
     except Exception as e:
