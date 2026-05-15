@@ -549,7 +549,7 @@ data:
   filter-kubernetes.conf: |
     [FILTER]
         Name                kubernetes
-        Match               kube.*
+        Match               kube.var.*
         Kube_URL            https://kubernetes.default.svc:443
         Kube_CA_File        /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
         Kube_Token_File     /var/run/secrets/kubernetes.io/serviceaccount/token
@@ -561,14 +561,14 @@ data:
 
     [FILTER]
         Name    grep
-        Match   kube.*
+        Match   kube.var.*
         # Only forward logs containing "error" or "warn" or "panic" or "fatal" (case insensitive)
         Regex   log (?i).*(error|warn|panic|fatal).*
 
   output-webhook.conf: |
     [OUTPUT]
         Name          http
-        Match         kube.*
+        Match         kube.var.*
         Host          k3s-mcp-agent.dms.svc.cluster.local
         Port          8000
         URI           /logs
