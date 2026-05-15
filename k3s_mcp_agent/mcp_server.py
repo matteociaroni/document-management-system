@@ -12,7 +12,16 @@ logger = logging.getLogger("k3s_mcp_server")
 
 mcp = FastMCP("k3s-mcp-server", host=settings.mcp_host, port=settings.mcp_port)
 
+from enum import Enum
+
+class Severity(str, Enum):
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+    CRITICAL = "CRITICAL"
+
 class LogAnalysisResult(BaseModel):
+    severity: Severity = Field(..., description="The severity level of the issue.")
     cause: str = Field(..., description="The root cause of the error found in the log.")
     solution: str = Field(..., description="A proposed solution or actionable step to fix the error.")
 
@@ -50,18 +59,20 @@ def analyze_k3s_log(log_text: str) -> dict:
             ],
         )
         return {
+            "severity": result.severity.value,
             "cause": result.cause,
             "solution": result.solution
         }
     except Exception as e:
         logger.error(f"Error analyzing log: {e}")
         return {
+            "severity": "CRITICAL",
             "cause": "Failed to analyze log due to LLM error.",
             "solution": str(e)
         }
 
 @mcp.tool()
-def send_telegram_alert(log_text: str, cause: str, solution: str) -> str:
+def send_telegram_alert(log_text: str, cause: str, solution: str, severity: str = "HIGH") -> str:
     """
     Send an alert to the configured Telegram bot containing the log, cause, and solution.
     Returns a success or error message.
@@ -72,8 +83,16 @@ def send_telegram_alert(log_text: str, cause: str, solution: str) -> str:
         
     url = f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage"
     
+    emoji_map = {
+        "LOW": "🔵",
+        "MEDIUM": "🟡",
+        "HIGH": "🟠",
+        "CRITICAL": "🔴"
+    }
+    emoji = emoji_map.get(severity.upper(), "🚨")
+    
     message = (
-        f"🚨 <b>K3s Alert</b> 🚨\n\n"
+        f"{emoji} <b>K3s Alert - Severity: {severity.upper()}</b> {emoji}\n\n"
         f"<b>Log:</b>\n<pre>{log_text[:500]}</pre>\n\n"
         f"<b>Cause:</b>\n{cause}\n\n"
         f"<b>Solution:</b>\n{solution}"
