@@ -2,6 +2,8 @@ import json
 import logging
 import time
 import hashlib
+import asyncio
+import httpx
 from collections import OrderedDict
 from typing import Any, Dict
 from fastapi import FastAPI, Request, BackgroundTasks
@@ -44,23 +46,29 @@ deduplicator = LogDeduplicator(ttl_seconds=900)  # 15 minutes cooldown
 
 app = FastAPI(title="K3s Log Webhook Agent")
 
+# Limit concurrent MCP connections/LLM calls to avoid overloading the proxy
+mcp_semaphore = asyncio.Semaphore(2)
+
 async def call_mcp_tool(url: str, tool_name: str, arguments: dict) -> Any:
-    """Async helper to call an MCP tool."""
+    """Async helper to call an MCP tool with increased timeout."""
     try:
-        async with sse_client(url) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                result = await session.call_tool(tool_name, arguments)
-                if not result.content:
-                    return None
-                text = result.content[0].text
-                try:
-                    parsed = json.loads(text)
-                    if isinstance(parsed, str):
-                        parsed = json.loads(parsed)
-                    return parsed
-                except json.JSONDecodeError:
-                    return text
+        async with mcp_semaphore:
+            # The LLM can take a while, so we increase the httpx timeout
+            timeout = httpx.Timeout(60.0)
+            async with sse_client(url, timeout=timeout) as (read, write):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    result = await session.call_tool(tool_name, arguments)
+                    if not result.content:
+                        return None
+                    text = result.content[0].text
+                    try:
+                        parsed = json.loads(text)
+                        if isinstance(parsed, str):
+                            parsed = json.loads(parsed)
+                        return parsed
+                    except json.JSONDecodeError:
+                        return text
     except Exception as e:
         logger.error(f"Error calling MCP tool {tool_name}: {e}")
         return None
