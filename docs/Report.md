@@ -20,39 +20,29 @@ Nella progettazione dell’architettura del sistema, è stato adottando un appro
 
 ## Architettura del sistema
 
-### Microservizi
-
-Il sistema è composto da diversi microservizi indipendenti, ciascuno responsabile di una specifica area funzionale. Questa suddivisione permette di mantenere separata la logica applicativa, semplificare la manutenzione del progetto e consentire l’integrazione di nuovi servizi nel tempo. La comunicazione tra i vari moduli avviene tramite API e meccanismi di elaborazione asincrona, così da rendere il sistema più flessibile e adatto a gestire carichi variabili.
+Il sistema è composto da diversi **microservizi** indipendenti, ciascuno responsabile di una specifica area funzionale. Questa suddivisione permette di mantenere separata la logica applicativa, semplificare la manutenzione del progetto e consentire l’integrazione di nuovi servizi nel tempo. La comunicazione tra i vari moduli avviene tramite API e meccanismi di elaborazione asincrona, così da rendere il sistema più flessibile e adatto a gestire carichi variabili.
 
 Il **frontend** fornisce le funzionalità di gestione documentale attraverso un’interfaccia web. Il **backend** espone le API principali del sistema e gestisce autenticazione, autorizzazione, organizzazione dei file, gestione dei permessi e coordinamento delle operazioni.
 
 I metadati dei documenti, degli utenti e delle cartelle vengono salvati all’interno di un **database relazionale**, mentre i file veri e propri sono memorizzati in un sistema di **object storage** separato. Questa separazione consente di migliorare la gestione dei dati e supportare volumi elevati di documenti.
 
-Per le operazioni più costose o asincrone, come l’elaborazione di allegati email, l’estrazione del testo dai documenti e la classificazione automatica tramite agenti AI, il sistema utilizza **worker dedicati** e **code di eventi**. In questo modo le attività di background non bloccano le normali richieste degli utenti e possono essere scalate indipendentemente.
-
-[dettagli riguardo la ricerca e l'elaborazione dei file con Apache Tika]
+Per le operazioni più costose o asincrone, come l’elaborazione di allegati email, l’estrazione del testo dai documenti, l'indicizzazione per la ricerca e la classificazione automatica tramite agenti AI, il sistema utilizza **worker dedicati** e **code di eventi**. In questo modo le attività di background non bloccano le normali richieste degli utenti e possono essere scalate indipendentemente.
 
 [immagini dell'architettura]
-
-### Deployment
-
-Per il deployment del sistema è stato scelto **Kubernetes**, una piattaforma di orchestrazione di container che consente di gestire in modo centralizzato i diversi servizi dell’applicazione. Questa soluzione permette di distribuire e coordinare automaticamente i componenti del sistema, semplificando operazioni di aggiornamento, monitoraggio e scalabilità.
-
-L’utilizzo di Kubernetes offre diversi vantaggi, tra cui l’alta disponibilità dei servizi, la possibilità di scalare dinamicamente le componenti più utilizzate e una maggiore affidabilità dell’infrastruttura. Inoltre, la gestione separata dei microservizi consente di aggiornare o sostituire singole componenti senza interrompere il funzionamento dell’intero sistema.
-
-L’approccio containerizzato facilita inoltre la portabilità dell’applicazione tra ambienti diversi, rendendo più semplice il passaggio dallo sviluppo locale a infrastrutture cloud o distribuite.
 
 ## Stack tecnologico
 
 ### Object storage
 
-Per la gestione dei file è stato adottato un sistema di object storage, con l’obiettivo di separare i contenuti binari (documenti e allegati) dai metadati gestiti nel database relazionale. Questa scelta consente una migliore scalabilità e una gestione più efficiente di grandi volumi di dati non strutturati.
+Per la gestione dei documenti è stato adottato un sistema di object storage, separando i contenuti binari dai metadati gestiti nel database relazionale. Questo approccio consente di migliorare la scalabilità del sistema e di gestire in modo più efficiente grandi quantità di file, evitando di memorizzare documenti direttamente all’interno del database.
 
-Sono state considerate diverse soluzioni: storage S3 compatibili gestiti, MinIO, SeaweedFS, Garage e Ceph. Le soluzioni S3 gestite rappresentano lo standard industriale in termini di affidabilità e scalabilità, ma introducono dipendenza da provider esterni e costi variabili. MinIO offre una soluzione open source compatibile con S3, semplice da integrare ma il progetto non è più mantenuto. Ceph è una piattaforma molto completa e robusta, adatta a contesti enterprise, ma caratterizzata da elevata complessità operativa e costi infrastrutturali significativi. Garage, infine, è una soluzione più recente e orientata alla resilienza distribuita, ma con un ecosistema ancora meno maturo.
+Durante la progettazione sono state considerate diverse tipologie di storage, tra cui filesystem tradizionali che però, nonpsytante risultino semplici da utilizzare in ambienti limitati, presentano difficoltà nella gestione della scalabilità, della replica e dell’alta disponibilità in contesti distribuiti.
 
-È stato scelto **SeaweedFS** per il progetto grazie al buon equilibrio tra semplicità, prestazioni e capacità di scalare orizzontalmente, mantenendo al tempo stesso un’integrazione diretta con ambienti containerizzati e una gestione più leggera rispetto ad alternative più complesse.
+Per questi motivi è stato scelto di adottare uno storage compatibile con il protocollo **S3**, oggi considerato uno standard de facto per l’object storage. Questo modello offre diversi vantaggi: elevata scalabilità, semplicità di integrazione applicativa, gestione efficiente di file di grandi dimensioni e disponibilità di librerie e strumenti compatibili in praticamente tutti gli ecosistemi software moderni.
 
-Un ulteriore vantaggio dell’approccio adottato è l’utilizzo del protocollo S3 come standard di interoperabilità. Questo consente di mantenere il sistema indipendente dall’implementazione specifica dello storage e rende possibile, in futuro, migrare verso soluzioni alternative (come MinIO, Ceph o storage S3 gestiti) senza modifiche sostanziali all’architettura applicativa.
+L’utilizzo di API compatibili S3 consente inoltre di mantenere il sistema indipendente dal provider o dall’implementazione specifica dello storage. L’applicazione interagisce infatti tramite le API standard del protocollo, rendendo possibile migrare in futuro verso soluzioni differenti (self-hosted o gestite) senza modifiche significative all’architettura applicativa.
+
+Questa scelta permette quindi di ottenere un buon compromesso tra semplicità di integrazione, portabilità e possibilità di evoluzione futura dell’infrastruttura.
 
 ### Database relazionale
 
@@ -108,7 +98,9 @@ Tra le alternative considerate rientrano Elasticsearch e la full-text search nat
 
 OpenSearch offre inoltre funzionalità particolarmente utili per il progetto, come il supporto alla ricerca full-text, filtri avanzati, ranking dei risultati e ricerca vettoriale tramite embeddings. Questo consente non solo di effettuare ricerche basate su parole chiave, ma anche ricerche semantiche in grado di individuare documenti concettualmente simili alle query dell’utente.
 
-Nel sistema, OpenSearch viene alimentato dai contenuti estratti tramite Apache Tika. I documenti vengono elaborati da worker dedicati che estraggono il testo, generano eventuali embeddings e aggiornano l’indice di ricerca. Questo approccio asincrono consente di mantenere separate le operazioni di upload dalla fase di indicizzazione, migliorando la scalabilità e le prestazioni complessive della piattaforma.
+Per supportare la ricerca semantica, il sistema genera embeddings a partire dal testo estratto dai documenti utilizzando il modello **paraphrase-multilingual-MiniLM-L12-v2**, scelto per il buon compromesso tra qualità dei risultati, supporto multilingua e ridotto consumo di risorse computazionali. Gli embeddings prodotti vengono salvati in OpenSearch e utilizzati per confrontare semanticamente query e documenti.
+
+Nel sistema, OpenSearch viene alimentato dai contenuti estratti tramite Apache Tika. I documenti vengono elaborati da worker dedicati che estraggono il testo, generano gli embeddings e aggiornano l’indice di ricerca. Questo approccio asincrono consente di mantenere separate le operazioni di upload dalla fase di indicizzazione, migliorando la scalabilità e le prestazioni complessive della piattaforma.
 
 Infine, l’adozione di OpenSearch permette di estendere facilmente il sistema con funzionalità future legate all’intelligenza artificiale, come sistemi di recommendation, ricerca semantica avanzata e integrazione con pipeline RAG basate su modelli linguistici.
 
@@ -137,5 +129,40 @@ Successivamente, i documenti acquisiti vengono inseriti nella pipeline di elabor
 Questo approccio consente di trasformare la posta elettronica in un canale di acquisizione documentale completamente integrato con il sistema, riducendo le operazioni manuali richieste agli utenti e migliorando l’automazione dell’intero flusso di gestione dei documenti.
 
 L’elaborazione viene eseguita in modo asincrono tramite componenti separati e code di elaborazione, così da mantenere indipendenti le operazioni di polling delle email, archiviazione dei file, estrazione del testo e classificazione automatica. Questa suddivisione permette di scalare separatamente le diverse componenti del sistema e garantire una maggiore affidabilità anche in presenza di elevati volumi di documenti o allegati email.
+
+## Deployment e infrarastruttura 
+
+Per il deployment della piattaforma è stato scelto **Google Cloud Platform** come provider cloud, principalmente per la disponibilità di servizi gestiti, l’integrazione con ambienti containerizzati e la semplicità di scalabilità dell’infrastruttura.
+
+### Storage
+Una delle principali decisioni architetturali ha riguardato la gestione dei componenti stateful del sistema. Servizi come il database relazionale e l’object storage richiedono infatti meccanismi complessi di replica, persistenza e gestione della consistenza dei dati, soprattutto in ambienti distribuiti e ad alta disponibilità. Per ridurre la complessità operativa e migliorare l’affidabilità complessiva della piattaforma, è stato quindi scelto di utilizzare **servizi gestiti** per PostgreSQL e per lo storage compatibile S3 in modo da delegare al provider attività critiche come:
+
+- replica dei dati;
+- backup automatici;
+- failover;
+- aggiornamenti;
+- scalabilità dello storage.
+
+Questo approccio permette di concentrarsi maggiormente sullo sviluppo applicativo evitando la gestione diretta di cluster stateful complessi, che avrebbero introdotto costi operativi significativamente maggiori.
+
+### Kubernetes
+
+Per quanto riguarda gli altri componenti della piattaforma, la maggior parte dei servizi è stata progettata secondo un’architettura stateless, in modo che i microservizi possano essere replicati orizzontalmente senza necessità di sincronizzazione dello stato interno.
+
+Per orchestrare questi servizi è stato adottato Kubernetes, eseguito su tre macchine virtuali distribuite su GCP. Kubernetes consente di automatizzare il deployment, il bilanciamento del carico, il riavvio automatico dei container e la scalabilità orizzontale dei vari componenti applicativi.
+
+La scelta di utilizzare Kubernetes permette inoltre di mantenere un’infrastruttura modulare ed estendibile, semplificando l’aggiunta di nuovi microservizi e garantendo una gestione uniforme dell’intero ambiente applicativo.
+
+### Agente di monitoraggio
+
+La piattaforma include un sistema di monitoraggio automatico basato su un agente AI, progettato per semplificare l’individuazione e l’analisi dei problemi applicativi all’interno del cluster Kubernetes.
+
+Il sistema si basa su un server MCP che espone in modo controllato alcune API di Kubernetes, permettendo all’agente di interrogare il cluster ed eseguire operazioni di osservabilità, come la lettura dei log dei pod e lo stato dei servizi in esecuzione.
+
+Quando vengono rilevati errori o anomalie nei container applicativi, l’agente analizza automaticamente i log ottenuti tramite il server MCP e tenta di identificare la possibile causa del problema e una potenziale soluzione o azione correttiva.
+
+Al termine dell’analisi, il sistema invia una notifica tramite Telegram contenente un riepilogo del problema, il log rilevante e le indicazioni generate dall’agente AI. Questo approccio consente di ridurre i tempi di individuazione dei malfunzionamenti e semplifica le attività di monitoraggio operativo dell’infrastruttura.
+
+L’utilizzo di MCP permette inoltre di mantenere separata la logica dell’agente dall’accesso diretto al cluster Kubernetes, introducendo un ulteriore livello di controllo e modularità nell’architettura del sistema
 
 ## Test di carico
