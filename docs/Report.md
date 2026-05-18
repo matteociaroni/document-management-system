@@ -166,3 +166,55 @@ Al termine dell’analisi, il sistema invia una notifica tramite Telegram conten
 L’utilizzo di MCP permette inoltre di mantenere separata la logica dell’agente dall’accesso diretto al cluster Kubernetes, introducendo un ulteriore livello di controllo e modularità nell’architettura del sistema
 
 ## Test di carico
+
+Per valutare le prestazioni del sistema è stato utilizzato Locust, uno strumento di load testing che consente di simulare il comportamento simultaneo di più utenti reali attraverso scenari di utilizzo definiti a livello applicativo.
+
+Il test è stato progettato per riprodurre le principali operazioni eseguite dagli utenti sulla piattaforma, tra cui autenticazione, gestione delle cartelle, visualizzazione dei documenti e caricamento dei file tramite presigned URL. Ogni utente simulato esegue una sequenza di operazioni realistiche, alternando richieste di lettura e scrittura con tempi di attesa variabili, in modo da rappresentare un utilizzo vicino a quello reale del sistema.
+
+L’esecuzione dei test è stata effettuata su un’istanza del backend distribuita su Kubernetes con 5 repliche attive, al fine di verificare la capacità del sistema di scalare orizzontalmente sotto carico.
+
+### Risultati 
+
+I risultati ottenuti mostrano che l’architettura è in grado di supportare circa 200 utenti concorrenti, equivalenti a circa 100 richieste al secondo in condizioni di carico stabile. La latenza mediana delle richieste si attesta intorno ai 200 ms, mentre il 95° percentile rimane inferiore a circa 1 secondo.
+
+[immagine Locust]
+
+Oltre questa soglia si osserva un degrado delle prestazioni non dovuto al layer applicativo, che continua a scalare correttamente grazie alla replicazione dei pod, ma al numero massimo di connessioni disponibili verso il database relazionale. Il servizio di database gestito Google CloudSQL impone infatti un limite di circa 100 connessioni simultanee, che viene raggiunto in condizioni di carico elevato, diventando il principale collo di bottiglia del sistema.
+
+Questi risultati confermano che la separazione in microservizi e l’utilizzo di un backend stateless, replicabile orizzontalmente su Kubernetes, consente di mantenere buone prestazioni anche in scenari di carico significativo, mentre le limitazioni residue sono legate principalmente ai vincoli del livello di persistenza gestito esternamente.
+
+## Modello di business
+
+### Analisi dei costi
+
+#### Costi fissi
+
+I costi fissi sono legati all’infrastruttura sempre attiva necessaria per il funzionamento della piattaforma. In particolare, rientrano in questa categoria il database relazionale e le macchine virtuali utilizzate per l’esecuzione dei servizi applicativi.
+
+Il database **PostgreSQL** è stato adottato in versione gestita per ridurre la complessità operativa legata alla gestione di replica, backup e alta disponibilità. Questo comporta un costo fisso mensile di 100€.
+
+A questi si aggiunge il costo delle **macchine virtuali** utilizzate per eseguire il cluster Kubernetes e i servizi applicativi. L’infrastruttura è composta da tre VM, per un costo complessivo di 180€ al mese.
+
+Nel complesso, i costi fissi dell’infrastruttura si attestano quindi a 280€ mensili.
+
+#### Costi variabili
+
+I costi variabili sono costituiti dall’**object storage** che è infatti il componente che cresce proporzionalmente alla quantità di dati caricati nel sistema. Il suo costo ammonta a 20€ per TB al mese.
+
+### Modello di pricing
+
+A partire dalla struttura dei costi analizzata, è stato definito un modello di pricing pensato per un contesto B2B, con l’obiettivo di mantenere semplicità commerciale e prevedibilità dei costi per le aziende clienti.
+
+Il modello adottato si basa su un piano unico, che include sia l’utilizzo della piattaforma sia una quota predefinita di risorse.
+
+In particolare, il piano prevede un costo fisso di **100€ al mese per azienda**, che include:
+
+- fino a 5 utenti attivi;
+- 1 TB di storage;
+- accesso completo alle funzionalità della piattaforma, incluse ricerca avanzata, classificazione automatica dei documenti e automazione dei processi di ingestione.
+
+L’eventuale utilizzo eccedente lo storage incluso può essere monetizzato tramite una tariffazione aggiuntiva proporzionale.
+
+La scelta di un piano semplice e tutto incluso per una soglia base è motivata dalla necessità di ridurre la complessità decisionale in fase di adozione. In ambito B2B, soprattutto per piccole e medie imprese, la chiarezza del pricing rappresenta un fattore determinante nella fase di valutazione di nuovi strumenti software.
+
+Inoltre, il modello proposto consente di coprire i costi fissi dell’infrastruttura già con un numero limitato di clienti, garantendo sostenibilità economica anche nelle prime fasi di crescita della piattaforma.
