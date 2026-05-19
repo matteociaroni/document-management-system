@@ -123,6 +123,18 @@ Attraverso questi strumenti l’agente può analizzare la struttura esistente de
 
 L’intero processo viene eseguito in modo asincrono tramite worker dedicati e code di elaborazione, così da non impattare sulle operazioni di upload effettuate dagli utenti. Questa architettura consente inoltre di estendere facilmente il comportamento dell’agente introducendo nuovi strumenti MCP o nuove strategie di classificazione senza modificare le componenti principali del sistema.
 
+#### Considerazioni sulla sicurezza
+
+La progettazione del sistema di classificazione automatica dei documenti è stata affiancata da un’attenzione specifica agli aspetti di sicurezza e controllo degli effetti dell’agente AI all’interno del sistema.
+
+L’agente opera esclusivamente attraverso strumenti esposti dal server MCP, i quali sono progettati in modalità **read-only**. Questo significa che l’agente può soltanto interrogare la struttura del sistema (come directory e file) senza possibilità di modificare direttamente lo stato del sistema o eseguire operazioni distruttive.
+
+L’unico effetto operativo prodotto dall’agente è la proposta della directory di destinazione per il file analizzato. Anche in caso di errore di classificazione, l’impatto risulta limitato e reversibile, poiché si tratta esclusivamente di una scelta di posizionamento logico del documento.
+
+Per aumentare ulteriormente l’affidabilità del sistema, l’agente produce inoltre un valore di **confidence** compreso tra 0 e 1, che rappresenta il livello di sicurezza della classificazione effettuata. Questo valore viene utilizzato come criterio decisionale: quando la confidence è inferiore a 0.8, il file non viene automaticamente posizionato nella directory suggerita, ma viene inserito in una sezione intermedia di inbox.
+
+In questa modalità, l’utente finale mantiene il controllo completo sul processo decisionale, potendo accettare il suggerimento dell’agente oppure ridefinire manualmente la destinazione del file. Questo approccio consente di combinare automazione e supervisione umana, riducendo il rischio di errori sistematici e garantendo un livello adeguato di affidabilità del sistema di classificazione.
+
 ### Caricamento automatico
 
 Il sistema integra una funzionalità di acquisizione automatica dei documenti tramite email, con l’obiettivo di semplificare ulteriormente il caricamento dei file e automatizzare il processo di archiviazione documentale.
@@ -177,6 +189,14 @@ Quando vengono rilevati errori o anomalie nei container applicativi, l’agente 
 Al termine dell’analisi, il sistema invia una notifica tramite Telegram contenente un riepilogo del problema, il log rilevante e le indicazioni generate dall’agente AI. Questo approccio consente di ridurre i tempi di individuazione dei malfunzionamenti e semplifica le attività di monitoraggio operativo dell’infrastruttura.
 
 L’adozione di MCP permette inoltre di mantenere separata la logica dell’agente dall’accesso diretto al cluster Kubernetes, introducendo un ulteriore livello di controllo e modularità nell’architettura del sistema.
+
+#### Considerazioni sulla sicurezza
+
+Il sistema di monitoraggio automatico è stato progettato per garantire isolamento e controllo delle operazioni dell’agente AI all’interno del cluster Kubernetes.
+
+L’agente non accede direttamente al cluster, ma utilizza un server MCP che espone esclusivamente strumenti in modalità read-only, limitati alla lettura di log, eventi e stato dei pod. Non sono quindi possibili operazioni di modifica o gestione delle risorse.
+
+In questo modo, eventuali errori di interpretazione dell’agente non hanno impatto sull’infrastruttura, ma si limitano alla produzione di diagnosi o suggerimenti non corretti. Le notifiche vengono inviate su Telegram e includono sempre il log originale, garantendo supervisione umana e controllo finale da parte dell’utente.
 
 ## Test di carico
 
