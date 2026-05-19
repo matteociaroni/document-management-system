@@ -110,6 +110,8 @@ Il sistema include una funzionalità di classificazione automatica dei documenti
 
 La pipeline di elaborazione inizia con **Apache Tika**, che estrae il contenuto testuale e i metadati dai documenti caricati nel sistema. Il testo ottenuto viene quindi utilizzato come input per un agente AI incaricato di determinare la categoria o la directory più appropriata in cui collocare il documento.
 
+Il testo del file che viene inviato all'LLM viene ridotto ai solo primi 2000 caratteri, in modo da risparmiare token e tempo di elaborazione mantenendo comunque un contesto sufficiente a permettere una corretta classificazione del file.
+
 L’agente è stato sviluppato utilizzando **Atomic Agents**, un framework che consente di costruire agenti modulari e integrabili con strumenti esterni. Per interagire con il sistema documentale, l’agente utilizza un server **MCP** (Model Context Protocol) che espone una serie di tool dedicati all’accesso controllato alle informazioni del DMS, in partiolare:
 
 - la visualizzazione delle directory disponibili
@@ -127,7 +129,7 @@ Il sistema integra una funzionalità di acquisizione automatica dei documenti tr
 
 Per ogni utente è possibile configurare uno o più account email associati al sistema. Un componente software dedicato effettua periodicamente il collegamento ai server di posta tramite protocollo **IMAP**, verificando la presenza di nuovi messaggi ricevuti e individuando eventuali allegati.
 
-Gli allegati vengono quindi estratti dalle email e salvati nel sistema di object storage, mantenendo separata la gestione dei file dai metadati applicativi. Contestualmente vengono creati gli opportuni riferimenti nel database, così da integrare i documenti all’interno del DMS come normali file caricati dagli utenti.
+Gli allegati vengono quindi estratti dalle email e salvati nel sistema di object storage; contestualmente vengono creati gli opportuni riferimenti nel database, così da integrare i documenti all’interno del DMS come normali file caricati dagli utenti.
 
 Successivamente, i documenti acquisiti vengono inseriti nella pipeline di elaborazione descritta nei capitoli precedenti. In particolare, Apache Tika viene utilizzato per estrarre automaticamente il contenuto testuale degli allegati, indipendentemente dal formato del file. Il testo ottenuto può quindi essere utilizzato sia per l’indicizzazione nel motore di ricerca sia per le funzionalità di classificazione automatica tramite agente AI.
 
