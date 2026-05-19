@@ -214,6 +214,8 @@ Nel complesso, i costi fissi dell’infrastruttura si attestano quindi a 280€ 
 
 I costi variabili sono costituiti dall’**object storage** che è infatti il componente che cresce proporzionalmente alla quantità di dati caricati nel sistema. Il suo costo ammonta a 20€ per TB al mese.
 
+A questi costi si aggiunge l’utilizzo di **API esterne** per i modelli linguistici (**LLM**), impiegati nelle funzionalità di classificazione, analisi dei documenti e supporto agli agenti AI. Tuttavia, sulla base delle metriche di utilizzo previste, il costo associato a queste chiamate è stimato nell’ordine di pochi euro al mese per utente anche in scenari di utilizzo intensivo. Data la difficoltà di una stima precisa e soprattutto l’incidenza ridotta rispetto alle altre voci di costo, tale componente viene considerata trascurabile ai fini del modello economico complessivo.
+
 ### Modello di pricing
 
 A partire dalla struttura dei costi analizzata, è stato definito un modello di pricing pensato per un contesto B2B, con l’obiettivo di mantenere semplicità commerciale e prevedibilità dei costi per le aziende clienti.
