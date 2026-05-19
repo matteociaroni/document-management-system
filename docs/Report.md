@@ -156,7 +156,11 @@ Questo approccio permette di concentrarsi maggiormente sullo sviluppo applicativ
 
 Per quanto riguarda gli altri componenti della piattaforma, la maggior parte dei servizi è stata progettata secondo un’architettura stateless, in modo che i microservizi possano essere replicati orizzontalmente senza necessità di sincronizzazione dello stato interno.
 
-Per orchestrare questi servizi è stato adottato Kubernetes, eseguito su tre macchine virtuali distribuite su GCP. Kubernetes consente di automatizzare il deployment, il bilanciamento del carico, il riavvio automatico dei container e la scalabilità orizzontale dei vari componenti applicativi.
+Per orchestrare questi servizi è stato adottato Kubernetes, eseguito su tre macchine virtuali distribuite su GCP. In particolare, è stata scelta una distribuzione leggera del cluster basata su **k3s**, una versione semplificata di Kubernetes progettata per ambienti con risorse ridotte e per deployment edge o su infrastrutture non particolarmente complesse. L’utilizzo di k3s consente di ridurre l’overhead operativo del control plane, semplificando l’installazione e la manutenzione del cluster, pur mantenendo piena compatibilità con le API Kubernetes standard.
+
+Questa scelta è stata effettuata in ottica di semplicità iniziale e rapidità di gestione dell’infrastruttura. Tuttavia, l’architettura rimane pienamente compatibile con una futura evoluzione verso un cluster Kubernetes “full” più robusto e scalabile. In caso di crescita significativa del sistema, è infatti possibile migrare con relativa facilità verso una soluzione Kubernetes standard o gestita, senza modifiche sostanziali ai deployment o all’architettura dei microservizi.
+
+Kubernetes consente di automatizzare il deployment, il bilanciamento del carico, il riavvio automatico dei container e la scalabilità orizzontale dei vari componenti applicativi. L’adozione di k3s si inserisce quindi in una scelta di pragmatismo, mantenendo al tempo stesso la possibilità di evoluzione verso infrastrutture più complesse.
 
 La scelta di utilizzare Kubernetes permette inoltre di mantenere un’infrastruttura modulare ed estendibile, semplificando l’aggiunta di nuovi microservizi e garantendo una gestione uniforme dell’intero ambiente applicativo.
 
