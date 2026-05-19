@@ -15,6 +15,7 @@ mcp = FastMCP("k3s-mcp-server", host=settings.mcp_host, port=settings.mcp_port)
 
 from enum import Enum
 
+
 class Severity(str, Enum):
     LOW = "LOW"
     MEDIUM = "MEDIUM"
@@ -26,12 +27,12 @@ class LogAnalysisResult(BaseModel):
     cause: str = Field(..., description="The root cause of the error found in the log.")
     solution: str = Field(..., description="A proposed solution or actionable step to fix the error.")
 
-def _get_llm_client():
-    client = AsyncOpenAI(
+_llm_client = instructor.from_openai(
+    AsyncOpenAI(
         api_key=settings.custom_api_key or "no-key",
         base_url=settings.base_url or None,
     )
-    return instructor.from_openai(client)
+)
 
 @mcp.tool()
 async def analyze_k3s_log(log_text: str) -> dict:
@@ -39,11 +40,10 @@ async def analyze_k3s_log(log_text: str) -> dict:
     Analyze a K3s or Kubernetes log entry to determine the root cause and propose a solution.
     Returns a dictionary with 'cause' and 'solution'.
     """
-    logger.info("Analyzing K3s log: %s", log_text[:100] + "...")
-    client = _get_llm_client()
-    
+    logger.info("Analyzing K3s log: %s", log_text[:100] + ("..." if len(log_text) > 100 else ""))
+
     try:
-        result = await client.chat.completions.create(
+        result = await _llm_client.chat.completions.create(
             model=settings.model_name,
             response_model=LogAnalysisResult,
             messages=[
@@ -67,9 +67,9 @@ async def analyze_k3s_log(log_text: str) -> dict:
     except Exception as e:
         logger.error(f"Error analyzing log: {e}")
         return {
-            "severity": "CRITICAL",
-            "cause": "Failed to analyze log due to LLM error.",
-            "solution": str(e)
+            "severity": "HIGH",
+            "cause": "Log analysis unavailable: LLM backend error.",
+            "solution": "Check LLM connectivity and API key configuration."
         }
 
 @mcp.tool()

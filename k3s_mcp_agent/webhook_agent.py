@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import time
 import hashlib
 import asyncio
@@ -7,6 +8,7 @@ import httpx
 from collections import OrderedDict
 from typing import Any, Dict
 from fastapi import FastAPI, Request, BackgroundTasks
+from fastapi.responses import JSONResponse
 import uvicorn
 from pydantic import BaseModel
 
@@ -44,7 +46,21 @@ class LogDeduplicator:
 
 deduplicator = LogDeduplicator(ttl_seconds=900)  # 15 minutes cooldown
 
+# Strip leading ISO-8601 timestamps so logs like "2024-01-01T12:00:01Z ERROR: ..."
+# don't bypass deduplication on every new timestamp.
+_TIMESTAMP_RE = re.compile(
+    r"^\s*\d{4}[-/]\d{2}[-/]\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?\s*"
+)
+
+def _normalize_for_dedup(text: str) -> str:
+    return _TIMESTAMP_RE.sub("", text, count=1)
+
 app = FastAPI(title="K3s Log Webhook Agent")
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
 
 # Limit concurrent MCP connections/LLM calls to avoid overloading the proxy
 mcp_semaphore = asyncio.Semaphore(2)
@@ -188,7 +204,8 @@ async def receive_logs(request: Request, background_tasks: BackgroundTasks):
             if should_process_log(pod_name, log_text):
                 # Create a unique hash for the log to deduplicate
                 # We hash the pod name and the first 200 chars of the log (usually enough to identify the error without timestamps)
-                dedup_key = hashlib.md5(f"{pod_name}:{log_text[:200]}".encode()).hexdigest()
+                normalized = _normalize_for_dedup(log_text)
+                dedup_key = hashlib.md5(f"{pod_name}:{normalized[:200]}".encode()).hexdigest()
                 
                 if not deduplicator.is_duplicate(dedup_key):
                     logger.info(f"New unique log detected (key: {dedup_key}). Queuing for analysis.")
@@ -206,7 +223,7 @@ async def receive_logs(request: Request, background_tasks: BackgroundTasks):
         return {"status": "ok", "message": "Logs processed"}
     except Exception as e:
         logger.error(f"Failed to process incoming webhook: {e}")
-        return {"status": "error", "message": str(e)}
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
 
 if __name__ == "__main__":
