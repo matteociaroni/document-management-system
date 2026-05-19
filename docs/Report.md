@@ -168,13 +168,15 @@ La scelta di utilizzare Kubernetes permette inoltre di mantenere un’infrastrut
 
 La piattaforma include un sistema di monitoraggio automatico basato su un agente AI, progettato per semplificare l’individuazione e l’analisi dei problemi applicativi all’interno del cluster Kubernetes.
 
-Il sistema si basa su un server MCP che espone in modo controllato alcune API di Kubernetes, permettendo all’agente di interrogare il cluster ed eseguire operazioni di osservabilità, come la lettura dei log dei pod e lo stato dei servizi in esecuzione.
+La raccolta dei log e degli eventi del cluster è affidata a Fluent Bit, un agente leggero di log processing distribuito in modalità DaemonSet su tutti i nodi del cluster. Fluent Bit intercetta i log generati dai container applicativi e gli eventi Kubernetes, applica una prima fase di filtraggio e normalizzazione, e inoltra solo le informazioni rilevanti verso il componente di analisi. In particolare, il sistema è configurato per selezionare esclusivamente log contenenti livelli di severità come error, warning o condizioni critiche, riducendo il volume di dati da elaborare e migliorando l’efficienza complessiva della pipeline di osservabilità.
 
-Quando vengono rilevati errori o anomalie nei container applicativi, l’agente analizza automaticamente i log ottenuti tramite il server MCP e tenta di identificare la possibile causa del problema e una potenziale soluzione o azione correttiva.
+I dati raccolti vengono inviati a un server MCP dedicato, che espone in modo controllato alcune API del cluster Kubernetes. Questo componente consente all’agente di interrogare lo stato dei servizi e accedere ai log in modo strutturato, senza accesso diretto al cluster, garantendo così un ulteriore livello di isolamento e sicurezza.
+
+Quando vengono rilevati errori o anomalie nei container applicativi, l’agente analizza automaticamente i log ricevuti tramite MCP e tenta di identificare la possibile causa del problema e una potenziale soluzione o azione correttiva.
 
 Al termine dell’analisi, il sistema invia una notifica tramite Telegram contenente un riepilogo del problema, il log rilevante e le indicazioni generate dall’agente AI. Questo approccio consente di ridurre i tempi di individuazione dei malfunzionamenti e semplifica le attività di monitoraggio operativo dell’infrastruttura.
 
-L’utilizzo di MCP permette inoltre di mantenere separata la logica dell’agente dall’accesso diretto al cluster Kubernetes, introducendo un ulteriore livello di controllo e modularità nell’architettura del sistema
+L’adozione di MCP permette inoltre di mantenere separata la logica dell’agente dall’accesso diretto al cluster Kubernetes, introducendo un ulteriore livello di controllo e modularità nell’architettura del sistema.
 
 ## Test di carico
 
