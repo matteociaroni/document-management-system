@@ -70,8 +70,8 @@ async def call_mcp_tool(url: str, tool_name: str, arguments: dict) -> Any:
     try:
         async with mcp_semaphore:
             # The LLM can take a while, so we increase the httpx timeout
-            timeout = httpx.Timeout(60.0)
-            async with sse_client(url, timeout=timeout) as (read, write):
+            # Pass a float to timeout to prevent httpx.Timeout assertion errors
+            async with sse_client(url, timeout=60.0) as (read, write):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
                     result = await session.call_tool(tool_name, arguments)
