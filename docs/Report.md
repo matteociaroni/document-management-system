@@ -110,11 +110,30 @@ Il sistema include una funzionalità di classificazione automatica dei documenti
 
 La pipeline di elaborazione inizia con **Apache Tika**, che estrae il contenuto testuale e i metadati dai documenti caricati nel sistema. Il testo ottenuto viene quindi utilizzato come input per un agente AI incaricato di determinare la categoria o la directory più appropriata in cui collocare il documento.
 
-L’agente è stato sviluppato utilizzando **Atomic Agents**, un framework che consente di costruire agenti modulari e integrabili con strumenti esterni. Per interagire con il sistema documentale, l’agente utilizza un server **MCP** (Model Context Protocol) che espone una serie di tool dedicati all’accesso controllato alle informazioni del DMS, come la visualizzazione delle directory disponibili e i file che contengono.
+Il testo del file che viene inviato all'LLM viene ridotto ai solo primi 2000 caratteri, in modo da risparmiare token e tempo di elaborazione mantenendo comunque un contesto sufficiente a permettere una corretta classificazione del file.
+
+L’agente è stato sviluppato utilizzando **Atomic Agents**, un framework che consente di costruire agenti modulari e integrabili con strumenti esterni. Per interagire con il sistema documentale, l’agente utilizza un server **MCP** (Model Context Protocol) che espone una serie di tool dedicati all’accesso controllato alle informazioni del DMS, in partiolare:
+
+- la visualizzazione delle directory disponibili
+- informazioni (nome, gerarchia) di una directory
+- i file che contiene una directory
+
 
 Attraverso questi strumenti l’agente può analizzare la struttura esistente del sistema documentale e confrontare il contenuto del nuovo file con i documenti già archiviati. In questo modo la classificazione non si basa solamente sul nome del file o su regole statiche, ma sul contenuto semantico del documento e sul contesto organizzativo già presente nel sistema.
 
 L’intero processo viene eseguito in modo asincrono tramite worker dedicati e code di elaborazione, così da non impattare sulle operazioni di upload effettuate dagli utenti. Questa architettura consente inoltre di estendere facilmente il comportamento dell’agente introducendo nuovi strumenti MCP o nuove strategie di classificazione senza modificare le componenti principali del sistema.
+
+#### Considerazioni sulla sicurezza
+
+La progettazione del sistema di classificazione automatica dei documenti è stata affiancata da un’attenzione specifica agli aspetti di sicurezza e controllo degli effetti dell’agente AI all’interno del sistema.
+
+L’agente opera esclusivamente attraverso strumenti esposti dal server MCP, i quali sono progettati in modalità **read-only**. Questo significa che l’agente può soltanto interrogare la struttura del sistema (come directory e file) senza possibilità di modificare direttamente lo stato del sistema o eseguire operazioni distruttive.
+
+L’unico effetto operativo prodotto dall’agente è la proposta della directory di destinazione per il file analizzato. Anche in caso di errore di classificazione, l’impatto risulta limitato e reversibile, poiché si tratta esclusivamente di una scelta di posizionamento logico del documento.
+
+Per aumentare ulteriormente l’affidabilità del sistema, l’agente produce inoltre un valore di **confidence** compreso tra 0 e 1, che rappresenta il livello di sicurezza della classificazione effettuata. Questo valore viene utilizzato come criterio decisionale: quando la confidence è inferiore a 0.8, il file non viene automaticamente posizionato nella directory suggerita, ma viene inserito in una sezione intermedia di inbox.
+
+In questa modalità, l’utente finale mantiene il controllo completo sul processo decisionale, potendo accettare il suggerimento dell’agente oppure ridefinire manualmente la destinazione del file. Questo approccio consente di combinare automazione e supervisione umana, riducendo il rischio di errori sistematici e garantendo un livello adeguato di affidabilità del sistema di classificazione.
 
 ### Caricamento automatico
 
@@ -122,7 +141,7 @@ Il sistema integra una funzionalità di acquisizione automatica dei documenti tr
 
 Per ogni utente è possibile configurare uno o più account email associati al sistema. Un componente software dedicato effettua periodicamente il collegamento ai server di posta tramite protocollo **IMAP**, verificando la presenza di nuovi messaggi ricevuti e individuando eventuali allegati.
 
-Gli allegati vengono quindi estratti dalle email e salvati nel sistema di object storage, mantenendo separata la gestione dei file dai metadati applicativi. Contestualmente vengono creati gli opportuni riferimenti nel database, così da integrare i documenti all’interno del DMS come normali file caricati dagli utenti.
+Gli allegati vengono quindi estratti dalle email e salvati nel sistema di object storage; contestualmente vengono creati gli opportuni riferimenti nel database, così da integrare i documenti all’interno del DMS come normali file caricati dagli utenti.
 
 Successivamente, i documenti acquisiti vengono inseriti nella pipeline di elaborazione descritta nei capitoli precedenti. In particolare, Apache Tika viene utilizzato per estrarre automaticamente il contenuto testuale degli allegati, indipendentemente dal formato del file. Il testo ottenuto può quindi essere utilizzato sia per l’indicizzazione nel motore di ricerca sia per le funzionalità di classificazione automatica tramite agente AI.
 
@@ -130,7 +149,7 @@ Questo approccio consente di trasformare la posta elettronica in un canale di ac
 
 L’elaborazione viene eseguita in modo asincrono tramite componenti separati e code di elaborazione, così da mantenere indipendenti le operazioni di polling delle email, archiviazione dei file, estrazione del testo e classificazione automatica. Questa suddivisione permette di scalare separatamente le diverse componenti del sistema e garantire una maggiore affidabilità anche in presenza di elevati volumi di documenti o allegati email.
 
-## Deployment e infrarastruttura 
+## Deployment e infrastruttura 
 
 Per il deployment della piattaforma è stato scelto **Google Cloud Platform** come provider cloud, principalmente per la disponibilità di servizi gestiti, l’integrazione con ambienti containerizzati e la semplicità di scalabilità dell’infrastruttura.
 
@@ -149,7 +168,11 @@ Questo approccio permette di concentrarsi maggiormente sullo sviluppo applicativ
 
 Per quanto riguarda gli altri componenti della piattaforma, la maggior parte dei servizi è stata progettata secondo un’architettura stateless, in modo che i microservizi possano essere replicati orizzontalmente senza necessità di sincronizzazione dello stato interno.
 
-Per orchestrare questi servizi è stato adottato Kubernetes, eseguito su tre macchine virtuali distribuite su GCP. Kubernetes consente di automatizzare il deployment, il bilanciamento del carico, il riavvio automatico dei container e la scalabilità orizzontale dei vari componenti applicativi.
+Per orchestrare questi servizi è stato adottato Kubernetes, eseguito su tre macchine virtuali distribuite su GCP. In particolare, è stata scelta una distribuzione leggera del cluster basata su **k3s**, una versione semplificata di Kubernetes progettata per ambienti con risorse ridotte e per deployment edge o su infrastrutture non particolarmente complesse. L’utilizzo di k3s consente di ridurre l’overhead operativo del control plane, semplificando l’installazione e la manutenzione del cluster, pur mantenendo piena compatibilità con le API Kubernetes standard.
+
+Questa scelta è stata effettuata in ottica di semplicità iniziale e rapidità di gestione dell’infrastruttura. Tuttavia, l’architettura rimane pienamente compatibile con una futura evoluzione verso un cluster Kubernetes “full” più robusto e scalabile. In caso di crescita significativa del sistema, è infatti possibile migrare con relativa facilità verso una soluzione Kubernetes standard o gestita, senza modifiche sostanziali ai deployment o all’architettura dei microservizi.
+
+Kubernetes consente di automatizzare il deployment, il bilanciamento del carico, il riavvio automatico dei container e la scalabilità orizzontale dei vari componenti applicativi. L’adozione di k3s si inserisce quindi in una scelta di pragmatismo, mantenendo al tempo stesso la possibilità di evoluzione verso infrastrutture più complesse.
 
 La scelta di utilizzare Kubernetes permette inoltre di mantenere un’infrastruttura modulare ed estendibile, semplificando l’aggiunta di nuovi microservizi e garantendo una gestione uniforme dell’intero ambiente applicativo.
 
@@ -157,13 +180,23 @@ La scelta di utilizzare Kubernetes permette inoltre di mantenere un’infrastrut
 
 La piattaforma include un sistema di monitoraggio automatico basato su un agente AI, progettato per semplificare l’individuazione e l’analisi dei problemi applicativi all’interno del cluster Kubernetes.
 
-Il sistema si basa su un server MCP che espone in modo controllato alcune API di Kubernetes, permettendo all’agente di interrogare il cluster ed eseguire operazioni di osservabilità, come la lettura dei log dei pod e lo stato dei servizi in esecuzione.
+La raccolta dei log e degli eventi del cluster è affidata a Fluent Bit, un agente leggero di log processing distribuito in modalità DaemonSet su tutti i nodi del cluster. Fluent Bit intercetta i log generati dai container applicativi e gli eventi Kubernetes, applica una prima fase di filtraggio e normalizzazione, e inoltra solo le informazioni rilevanti verso il componente di analisi. In particolare, il sistema è configurato per selezionare esclusivamente log contenenti livelli di severità come error, warning o condizioni critiche, riducendo il volume di dati da elaborare e migliorando l’efficienza complessiva della pipeline di osservabilità.
 
-Quando vengono rilevati errori o anomalie nei container applicativi, l’agente analizza automaticamente i log ottenuti tramite il server MCP e tenta di identificare la possibile causa del problema e una potenziale soluzione o azione correttiva.
+I dati raccolti vengono inviati a un server MCP dedicato, che espone in modo controllato alcune API del cluster Kubernetes. Questo componente consente all’agente di interrogare lo stato dei servizi e accedere ai log in modo strutturato, senza accesso diretto al cluster, garantendo così un ulteriore livello di isolamento e sicurezza.
+
+Quando vengono rilevati errori o anomalie nei container applicativi, l’agente analizza automaticamente i log ricevuti tramite MCP e tenta di identificare la possibile causa del problema e una potenziale soluzione o azione correttiva.
 
 Al termine dell’analisi, il sistema invia una notifica tramite Telegram contenente un riepilogo del problema, il log rilevante e le indicazioni generate dall’agente AI. Questo approccio consente di ridurre i tempi di individuazione dei malfunzionamenti e semplifica le attività di monitoraggio operativo dell’infrastruttura.
 
-L’utilizzo di MCP permette inoltre di mantenere separata la logica dell’agente dall’accesso diretto al cluster Kubernetes, introducendo un ulteriore livello di controllo e modularità nell’architettura del sistema
+L’adozione di MCP permette inoltre di mantenere separata la logica dell’agente dall’accesso diretto al cluster Kubernetes, introducendo un ulteriore livello di controllo e modularità nell’architettura del sistema.
+
+#### Considerazioni sulla sicurezza
+
+Il sistema di monitoraggio automatico è stato progettato per garantire isolamento e controllo delle operazioni dell’agente AI all’interno del cluster Kubernetes.
+
+L’agente non accede direttamente al cluster, ma utilizza un server MCP che espone esclusivamente strumenti in modalità read-only, limitati alla lettura di log, eventi e stato dei pod. Non sono quindi possibili operazioni di modifica o gestione delle risorse.
+
+In questo modo, eventuali errori di interpretazione dell’agente non hanno impatto sull’infrastruttura, ma si limitano alla produzione di diagnosi o suggerimenti non corretti. Le notifiche vengono inviate su Telegram e includono sempre il log originale, garantendo supervisione umana e controllo finale da parte dell’utente.
 
 ## Test di carico
 
@@ -200,6 +233,8 @@ Nel complesso, i costi fissi dell’infrastruttura si attestano quindi a 280€ 
 #### Costi variabili
 
 I costi variabili sono costituiti dall’**object storage** che è infatti il componente che cresce proporzionalmente alla quantità di dati caricati nel sistema. Il suo costo ammonta a 20€ per TB al mese.
+
+A questi costi si aggiunge l’utilizzo di **API esterne** per i modelli linguistici (**LLM**), impiegati nelle funzionalità di classificazione, analisi dei documenti e supporto agli agenti AI. Tuttavia, sulla base delle metriche di utilizzo previste, il costo associato a queste chiamate è stimato nell’ordine di pochi euro al mese per utente anche in scenari di utilizzo intensivo. Data la difficoltà di una stima precisa e soprattutto l’incidenza ridotta rispetto alle altre voci di costo, tale componente viene considerata trascurabile ai fini del modello economico complessivo.
 
 ### Modello di pricing
 
