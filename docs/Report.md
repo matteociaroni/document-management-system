@@ -137,7 +137,7 @@ Questo approccio consente di trasformare la posta elettronica in un canale di ac
 
 L’elaborazione viene eseguita in modo asincrono tramite componenti separati e code di elaborazione, così da mantenere indipendenti le operazioni di polling delle email, archiviazione dei file, estrazione del testo e classificazione automatica. Questa suddivisione permette di scalare separatamente le diverse componenti del sistema e garantire una maggiore affidabilità anche in presenza di elevati volumi di documenti o allegati email.
 
-## Deployment e infrarastruttura 
+## Deployment e infrastruttura 
 
 Per il deployment della piattaforma è stato scelto **Google Cloud Platform** come provider cloud, principalmente per la disponibilità di servizi gestiti, l’integrazione con ambienti containerizzati e la semplicità di scalabilità dell’infrastruttura.
 
