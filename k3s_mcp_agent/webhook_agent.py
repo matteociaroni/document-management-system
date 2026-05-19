@@ -86,7 +86,12 @@ async def call_mcp_tool(url: str, tool_name: str, arguments: dict) -> Any:
                     except json.JSONDecodeError:
                         return text
     except Exception as e:
-        logger.error(f"Error calling MCP tool {tool_name}: {e}")
+        # anyio TaskGroup wraps real errors in an ExceptionGroup — unwrap it
+        cause = e.exceptions[0] if hasattr(e, "exceptions") and e.exceptions else e
+        logger.error(
+            f"Error calling MCP tool {tool_name}: {type(cause).__name__}: {cause}",
+            exc_info=cause,
+        )
         return None
 
 async def process_log(log_text: str):
