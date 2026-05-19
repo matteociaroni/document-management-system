@@ -110,7 +110,12 @@ Il sistema include una funzionalità di classificazione automatica dei documenti
 
 La pipeline di elaborazione inizia con **Apache Tika**, che estrae il contenuto testuale e i metadati dai documenti caricati nel sistema. Il testo ottenuto viene quindi utilizzato come input per un agente AI incaricato di determinare la categoria o la directory più appropriata in cui collocare il documento.
 
-L’agente è stato sviluppato utilizzando **Atomic Agents**, un framework che consente di costruire agenti modulari e integrabili con strumenti esterni. Per interagire con il sistema documentale, l’agente utilizza un server **MCP** (Model Context Protocol) che espone una serie di tool dedicati all’accesso controllato alle informazioni del DMS, come la visualizzazione delle directory disponibili e i file che contengono.
+L’agente è stato sviluppato utilizzando **Atomic Agents**, un framework che consente di costruire agenti modulari e integrabili con strumenti esterni. Per interagire con il sistema documentale, l’agente utilizza un server **MCP** (Model Context Protocol) che espone una serie di tool dedicati all’accesso controllato alle informazioni del DMS, in partiolare:
+
+- la visualizzazione delle directory disponibili
+- informazioni (nome, gerarchia) di una directory
+- i file che contiene una directory
+
 
 Attraverso questi strumenti l’agente può analizzare la struttura esistente del sistema documentale e confrontare il contenuto del nuovo file con i documenti già archiviati. In questo modo la classificazione non si basa solamente sul nome del file o su regole statiche, ma sul contenuto semantico del documento e sul contesto organizzativo già presente nel sistema.
 
