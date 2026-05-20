@@ -274,11 +274,16 @@ Il test evidenzia che l’architettura è in grado di tollerare la perdita di in
 
 I test effettuati evidenziano che il sistema mantiene un buon livello di continuità operativa anche in presenza di guasti sia a livello applicativo che infrastrutturale. La perdita di singoli pod provoca un degrado temporaneo limitato, mentre la perdita di intere VM viene gestita correttamente dal load balancer, che ridistribuisce automaticamente il traffico verso le istanze disponibili.
 
-Un elemento chiave dell’affidabilità complessiva è l’utilizzo di servizi gestiti per i componenti critici del sistema. Il database relazionale e l’object storage sono entrambi basati su servizi cloud con SLA pari al 99,95%, riducendo significativamente la probabilità di downtime legato alla persistenza dei dati. Allo stesso modo, il load balancer gestito garantisce alta disponibilità del punto di ingresso del sistema, evitando single point of failure a livello di rete.
+Un elemento chiave dell’affidabilità complessiva è l’utilizzo di servizi gestiti per i componenti critici del sistema, ciascuno con livelli di disponibilità elevati:
 
-L’uso di VM su GCP, combinato con la replicazione dei servizi su Kubernetes, consente inoltre di isolare i guasti a livello di singolo nodo senza compromettere la disponibilità complessiva della piattaforma.
+- Load balancer gestito: SLA 99,99%
+- PostreSQL gestito: SLA 99,95%
+- Object storage: SLA 99,95%
+- VM: SLA 99,90%
 
-Nel complesso, l’architettura raggiunge un buon livello di affidabilità grazie alla combinazione di componenti ridondati e servizi gestiti, con tolleranza ai guasti locali e mantenimento della continuità del servizio anche in scenari di fault parziale.
+Combinando questi livelli di disponibilità, lo SLA complessivo dell’infrastruttura risulta pari a circa **99,89%** (che corrisponde a circa **9,6 ore di downtime annuo**), considerando la dipendenza in serie dei principali componenti critici del sistema.
+
+Nel complesso, l’architettura raggiunge quindi un buon livello di affidabilità grazie alla combinazione di servizi gestiti e ridondanza a livello di nodi, garantendo tolleranza ai guasti locali e continuità del servizio anche in scenari di fault parziale.
 
 ## Modello di business
 
