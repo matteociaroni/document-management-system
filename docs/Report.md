@@ -219,8 +219,6 @@ Il test è stato progettato per riprodurre le principali operazioni eseguite dag
 
 L’esecuzione dei test è stata effettuata su un’istanza del backend distribuita su Kubernetes con 5 repliche attive, al fine di verificare la capacità del sistema di scalare orizzontalmente sotto carico.
 
-#### Risultati 
-
 I risultati ottenuti mostrano che l’architettura è in grado di supportare circa 200 utenti concorrenti, equivalenti a circa 100 richieste al secondo in condizioni di carico stabile. La latenza mediana delle richieste si attesta intorno ai 200 ms, mentre il 95° percentile rimane inferiore a circa 1 secondo.
 
 [immagine Locust]
@@ -245,6 +243,33 @@ Al contrario, alcuni componenti non richiedono interventi in ottica di scaling:
 
 - L’object storage non rappresenta un collo di bottiglia, poiché scala automaticamente in modo trasparente.
 - Il load balancer gestito non richiede modifiche, essendo già progettato per gestire grandi volumi di traffico in ingresso.
+
+## Resilienza
+
+### Test di fault injection
+
+#### Spegnimento pod Kubernetes
+
+Per valutare la resilienza del sistema è stato eseguito un test di fault injection, simulando il comportamento della piattaforma in caso di guasto parziale dei componenti applicativi.
+
+Il test è stato condotto utilizzando Locust con 20 utenti concorrenti, mentre il backend era in esecuzione su Kubernetes con 3 repliche attive. Durante l’esecuzione del carico è stata terminata una delle istanze del servizio backend, simulando la **perdita improvvisa di un pod** in produzione.
+
+I risultati mostrano che, immediatamente dopo la terminazione della replica, si verifica un breve picco di errori (HTTP 502) dovuto al tempo necessario al sistema di routing e all’ingress controller per aggiornare gli endpoint disponibili. Questo comportamento dura circa **20 secondi**, dopo i quali il traffico viene completamente ridistribuito sulle repliche rimanenti e il sistema ritorna a uno stato stabile senza ulteriori errori.
+
+[immagine di Locust]
+
+Il test evidenzia che l’architettura è in grado di tollerare la perdita di singole istanze senza interruzione del servizio, grazie alla replicazione dei pod e ai meccanismi di health check di Kubernetes. Il degrado osservato è limitato nel tempo e rappresenta la finestra di riconfigurazione necessaria al cluster per riallineare gli endpoint attivi.
+
+#### Spegnimento nodi Kubernetes
+
+È stato eseguito un ulteriore test per valutare la resilienza a livello infrastrutturale, simulando la perdita completa di una delle VM del cluster.
+
+Durante il test, il backend è stato mantenuto sotto carico con Locust, mentre una delle macchine virtuali è stata volontariamente spenta. In questo scenario si è osservato che il load balancer di GCP ha correttamente rimosso il nodo non più raggiungibile e ha redistribuito il traffico verso le VM rimanenti senza interventi manuali.
+
+Le richieste già in corso verso la VM spenta hanno generato errori, mentre le nuove richieste sono state automaticamente instradate verso i nodi attivi, mantenendo il sistema complessivamente operativo. Dopo un breve periodo di transizione, il servizio è tornato stabile e pienamente funzionante.
+
+Il test evidenzia che l’architettura è in grado di tollerare la perdita di intere istanze infrastrutturali, garantendo continuità del servizio grazie al bilanciamento a livello di load balancer e alla replica dei servizi su più nodi.
+
 
 ## Modello di business
 
