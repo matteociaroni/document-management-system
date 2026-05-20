@@ -47,13 +47,23 @@ class LogDeduplicator:
 deduplicator = LogDeduplicator(ttl_seconds=900)  # 15 minutes cooldown
 
 # Strip leading ISO-8601 timestamps so logs like "2024-01-01T12:00:01Z ERROR: ..."
+# and klog timestamps like "E0519 11:11:50.366924       1 reflector.go:166]"
 # don't bypass deduplication on every new timestamp.
-_TIMESTAMP_RE = re.compile(
+_ISO_TIMESTAMP_RE = re.compile(
     r"^\s*\d{4}[-/]\d{2}[-/]\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?\s*"
+)
+_KLOG_TIMESTAMP_RE = re.compile(
+    r"^[IWEF]\d{4}\s+\d{2}:\d{2}:\d{2}\.\d+\s+(?:\d+\s+)?"
+)
+_MCP_PREFIX_RE = re.compile(
+    r"^INFO:k3s_mcp_server:Analyzing K3s log:\s*"
 )
 
 def _normalize_for_dedup(text: str) -> str:
-    return _TIMESTAMP_RE.sub("", text, count=1)
+    text = _ISO_TIMESTAMP_RE.sub("", text, count=1)
+    text = _MCP_PREFIX_RE.sub("", text, count=1)
+    text = _KLOG_TIMESTAMP_RE.sub("", text, count=1)
+    return text
 
 app = FastAPI(title="K3s Log Webhook Agent")
 
@@ -182,6 +192,10 @@ async def receive_logs(request: Request, background_tasks: BackgroundTasks):
                 text_lower = text.lower()
                 pod_lower = pod.lower()
                 
+                # Exclude self logs to prevent feedback loops where the agent analyzes its own logs
+                if "k3s-mcp-agent" in pod_lower or "webhook-agent" in pod_lower or "mcp_server" in text_lower:
+                    return False
+
                 # 1. Only process error, panic, fatal (drop WARN)
                 if not any(k in text_lower for k in ["error", "panic", "fatal", "exception"]):
                     return False
