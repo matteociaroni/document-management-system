@@ -50,10 +50,10 @@ deduplicator = LogDeduplicator(ttl_seconds=900)  # 15 minutes cooldown
 # and klog timestamps like "E0519 11:11:50.366924       1 reflector.go:166]"
 # don't bypass deduplication on every new timestamp.
 _ISO_TIMESTAMP_RE = re.compile(
-    r"^\s*\d{4}[-/]\d{2}[-/]\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?\s*"
+    r"^\s*\[?\d{4}[-/]\d{2}[-/]\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?\]?\s*"
 )
 _KLOG_TIMESTAMP_RE = re.compile(
-    r"^[IWEF]\d{4}\s+\d{2}:\d{2}:\d{2}\.\d+\s+(?:\d+\s+)?"
+    r"^[IWEF]\d{4}\s+\d{2}:\d{2}:\d{2}\.\d+\s+(?:\d+\s+)?(?:[a-zA-Z0-9_.-]+:\d+\]\s*)?"
 )
 _MCP_PREFIX_RE = re.compile(
     r"^INFO:k3s_mcp_server:Analyzing K3s log:\s*"
@@ -194,8 +194,8 @@ async def receive_logs(request: Request, background_tasks: BackgroundTasks):
                 text_lower = text.lower()
                 pod_lower = pod.lower()
                 
-                # Exclude self logs to prevent feedback loops where the agent analyzes its own logs
-                if "k3s-mcp-agent" in pod_lower or "webhook-agent" in pod_lower or "mcp_server" in text_lower:
+                # Exclude self logs and log forwarding agent to prevent feedback loops
+                if "k3s-mcp-agent" in pod_lower or "webhook-agent" in pod_lower or "fluent-bit" in pod_lower or "mcp_server" in text_lower:
                     return False
 
                 # 1. Only process error, panic, fatal (drop WARN)
