@@ -176,6 +176,17 @@ Kubernetes consente di automatizzare il deployment, il bilanciamento del carico,
 
 La scelta di utilizzare Kubernetes permette inoltre di mantenere un’infrastruttura modulare ed estendibile, semplificando l’aggiunta di nuovi microservizi e garantendo una gestione uniforme dell’intero ambiente applicativo.
 
+### Load balancer
+
+Per garantire la corretta distribuzione del traffico verso la piattaforma è stato adottato il **load balancer gestito** di Google Cloud Platform, posizionato come punto di ingresso unico per tutte le richieste esterne.
+
+L’utilizzo di un load balancer esterno al cluster consente di evitare che il traffico venga instradato direttamente verso un singolo nodo, distribuendo invece le richieste in modo uniforme tra le diverse VM che compongono il cluster Kubernetes. In questo modo si riduce il rischio di colli di bottiglia legati a un singolo punto di accesso e si migliora la resilienza complessiva del sistema.
+
+Il load balancer agisce come primo livello della catena di routing: riceve le richieste dai client e le inoltra ai nodi del cluster. Da qui, il traffico viene poi gestito internamente da Kubernetes attraverso il sistema di Service e Ingress, che si occupa della distribuzione verso i pod applicativi.
+
+Questo approccio permette di combinare il bilanciamento a livello infrastrutturale fornito da GCP con il bilanciamento logico interno al cluster Kubernetes, ottenendo una distribuzione del carico su più livelli. Il risultato è un’architettura più scalabile, in cui l’aumento del traffico non si concentra su un singolo nodo ma viene ripartito tra tutte le risorse disponibili.
+
+
 ### Agente di monitoraggio
 
 La piattaforma include un sistema di monitoraggio automatico basato su un agente AI, progettato per semplificare l’individuazione e l’analisi dei problemi applicativi all’interno del cluster Kubernetes.
@@ -198,7 +209,9 @@ L’agente non accede direttamente al cluster, ma utilizza un server MCP che esp
 
 In questo modo, eventuali errori di interpretazione dell’agente non hanno impatto sull’infrastruttura, ma si limitano alla produzione di diagnosi o suggerimenti non corretti. Le notifiche vengono inviate su Telegram e includono sempre il log originale, garantendo supervisione umana e controllo finale da parte dell’utente.
 
-## Test di carico
+## Scalabilità 
+
+### Test di carico 
 
 Per valutare le prestazioni del sistema è stato utilizzato Locust, uno strumento di load testing che consente di simulare il comportamento simultaneo di più utenti reali attraverso scenari di utilizzo definiti a livello applicativo.
 
@@ -206,7 +219,7 @@ Il test è stato progettato per riprodurre le principali operazioni eseguite dag
 
 L’esecuzione dei test è stata effettuata su un’istanza del backend distribuita su Kubernetes con 5 repliche attive, al fine di verificare la capacità del sistema di scalare orizzontalmente sotto carico.
 
-### Risultati 
+#### Risultati 
 
 I risultati ottenuti mostrano che l’architettura è in grado di supportare circa 200 utenti concorrenti, equivalenti a circa 100 richieste al secondo in condizioni di carico stabile. La latenza mediana delle richieste si attesta intorno ai 200 ms, mentre il 95° percentile rimane inferiore a circa 1 secondo.
 
@@ -215,6 +228,23 @@ I risultati ottenuti mostrano che l’architettura è in grado di supportare cir
 Oltre questa soglia si osserva un degrado delle prestazioni non dovuto al layer applicativo, che continua a scalare correttamente grazie alla replicazione dei pod, ma al numero massimo di connessioni disponibili verso il database relazionale. Il servizio di database gestito Google CloudSQL impone infatti un limite di circa 100 connessioni simultanee, che viene raggiunto in condizioni di carico elevato, diventando il principale collo di bottiglia del sistema.
 
 Questi risultati confermano che la separazione in microservizi e l’utilizzo di un backend stateless, replicabile orizzontalmente su Kubernetes, consente di mantenere buone prestazioni anche in scenari di carico significativo, mentre le limitazioni residue sono legate principalmente ai vincoli del livello di persistenza gestito esternamente.
+
+
+### Considerazioni sulla scalabilità
+
+A partire dai risultati precedenti, le principali leve di scalabilità sono chiare e possono essere attivate in modo progressivo:
+
+- Aumento delle **repliche dei pod** Kubernetes, che è già supportato dall’architettura. 
+- Aumento del **numero di VM** nel cluster, per distribuire meglio i carichi e consentire più istanze di pod.
+- **Scalabilità verticale delle VM**, aumentando CPU e memoria dei nodi esistenti.
+- **Scalabilità verticale del database**, per incrementare il numero massimo di connessioni e ridurre la latenza sotto carico elevato.
+
+Questi interventi coprono l’intero stack applicativo e infrastrutturale e permettono di estendere la capacità del sistema senza modifiche architetturali.
+
+Al contrario, alcuni componenti non richiedono interventi in ottica di scaling:
+
+- L’object storage non rappresenta un collo di bottiglia, poiché scala automaticamente in modo trasparente.
+- Il load balancer gestito non richiede modifiche, essendo già progettato per gestire grandi volumi di traffico in ingresso.
 
 ## Modello di business
 
