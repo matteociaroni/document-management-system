@@ -13,7 +13,7 @@ COPY src src/
 COPY index.html vite.config.js ./
 
 # Build the app with API URL
-ARG VITE_API_URL=https://api.dms.matteociaroni.it
+ARG VITE_API_URL=https://api-dms.matteociaroni.it
 RUN VITE_API_URL=$VITE_API_URL npm run build
 
 # Serve with Nginx
