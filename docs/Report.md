@@ -244,7 +244,7 @@ Al contrario, alcuni componenti non richiedono interventi in ottica di scaling:
 - L’object storage non rappresenta un collo di bottiglia, poiché scala automaticamente in modo trasparente.
 - Il load balancer gestito non richiede modifiche, essendo già progettato per gestire grandi volumi di traffico in ingresso.
 
-## Resilienza
+## Affidabilità e resilienza
 
 ### Test di fault injection
 
@@ -270,6 +270,15 @@ Le richieste già in corso verso la VM spenta hanno generato errori, mentre le n
 
 Il test evidenzia che l’architettura è in grado di tollerare la perdita di intere istanze infrastrutturali, garantendo continuità del servizio grazie al bilanciamento a livello di load balancer e alla replica dei servizi su più nodi.
 
+### Considerazioni su affidabilità e resilienza
+
+I test effettuati evidenziano che il sistema mantiene un buon livello di continuità operativa anche in presenza di guasti sia a livello applicativo che infrastrutturale. La perdita di singoli pod provoca un degrado temporaneo limitato, mentre la perdita di intere VM viene gestita correttamente dal load balancer, che ridistribuisce automaticamente il traffico verso le istanze disponibili.
+
+Un elemento chiave dell’affidabilità complessiva è l’utilizzo di servizi gestiti per i componenti critici del sistema. Il database relazionale e l’object storage sono entrambi basati su servizi cloud con SLA pari al 99,95%, riducendo significativamente la probabilità di downtime legato alla persistenza dei dati. Allo stesso modo, il load balancer gestito garantisce alta disponibilità del punto di ingresso del sistema, evitando single point of failure a livello di rete.
+
+L’uso di VM su GCP, combinato con la replicazione dei servizi su Kubernetes, consente inoltre di isolare i guasti a livello di singolo nodo senza compromettere la disponibilità complessiva della piattaforma.
+
+Nel complesso, l’architettura raggiunge un buon livello di affidabilità grazie alla combinazione di componenti ridondati e servizi gestiti, con tolleranza ai guasti locali e mantenimento della continuità del servizio anche in scenari di fault parziale.
 
 ## Modello di business
 
