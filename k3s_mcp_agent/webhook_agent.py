@@ -58,8 +58,10 @@ _KLOG_TIMESTAMP_RE = re.compile(
 _MCP_PREFIX_RE = re.compile(
     r"^INFO:k3s_mcp_server:Analyzing K3s log:\s*"
 )
+_ANSI_ESCAPE_RE = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
 
 def _normalize_for_dedup(text: str) -> str:
+    text = _ANSI_ESCAPE_RE.sub("", text)
     text = _ISO_TIMESTAMP_RE.sub("", text, count=1)
     text = _MCP_PREFIX_RE.sub("", text, count=1)
     text = _KLOG_TIMESTAMP_RE.sub("", text, count=1)
