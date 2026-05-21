@@ -189,6 +189,7 @@ Il load balancer agisce come primo livello della catena di routing: riceve le ri
 
 Questo approccio permette di combinare il bilanciamento a livello infrastrutturale fornito da GCP con il bilanciamento logico interno al cluster Kubernetes, ottenendo una distribuzione del carico su più livelli. Il risultato è un’architettura più scalabile, in cui l’aumento del traffico non si concentra su un singolo nodo ma viene ripartito tra tutte le risorse disponibili.
 
+![Flusso delle richieste](https://raw.githubusercontent.com/matteociaroni/document-management-system/f25b4f62a83d3211dde6f70945d2da2be6c1cd4e/docs/images/request-flow.svg)
 
 ### Agente di monitoraggio
 
