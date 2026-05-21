@@ -26,9 +26,12 @@ Il **frontend** fornisce le funzionalità di gestione documentale attraverso un�
 
 I metadati dei documenti, degli utenti e delle cartelle vengono salvati all’interno di un **database relazionale**, mentre i file veri e propri sono memorizzati in un sistema di **object storage** separato. Questa separazione consente di migliorare la gestione dei dati e supportare volumi elevati di documenti.
 
+![Achitettura 1](https://raw.githubusercontent.com/matteociaroni/document-management-system/refs/heads/main/docs/images/architecture-user.svg)
+
+
 Per le operazioni più costose o asincrone, come l’elaborazione di allegati email, l’estrazione del testo dai documenti, l'indicizzazione per la ricerca e la classificazione automatica tramite agenti AI, il sistema utilizza **worker dedicati** e **code di eventi**. In questo modo le attività di background non bloccano le normali richieste degli utenti e possono essere scalate indipendentemente.
 
-[immagini dell'architettura]
+![Achitettura 2](https://raw.githubusercontent.com/matteociaroni/document-management-system/refs/heads/main/docs/images/architecture-async.svg)
 
 ## Stack tecnologico
 
@@ -221,7 +224,7 @@ L’esecuzione dei test è stata effettuata su un’istanza del backend distribu
 
 I risultati ottenuti mostrano che l’architettura è in grado di supportare circa 200 utenti concorrenti, equivalenti a circa 100 richieste al secondo in condizioni di carico stabile. La latenza mediana delle richieste si attesta intorno ai 200 ms, mentre il 95° percentile rimane inferiore a circa 1 secondo.
 
-[immagine Locust]
+![Load test su Locust](https://raw.githubusercontent.com/matteociaroni/document-management-system/refs/heads/main/docs/images/load-test.png)
 
 Oltre questa soglia si osserva un degrado delle prestazioni non dovuto al layer applicativo, che continua a scalare correttamente grazie alla replicazione dei pod, ma al numero massimo di connessioni disponibili verso il database relazionale. Il servizio di database gestito Google CloudSQL impone infatti un limite di circa 100 connessioni simultanee, che viene raggiunto in condizioni di carico elevato, diventando il principale collo di bottiglia del sistema.
 
@@ -256,7 +259,7 @@ Il test è stato condotto utilizzando Locust con 20 utenti concorrenti, mentre i
 
 I risultati mostrano che, immediatamente dopo la terminazione della replica, si verifica un breve picco di errori (HTTP 502) dovuto al tempo necessario al sistema di routing e all’ingress controller per aggiornare gli endpoint disponibili. Questo comportamento dura circa **20 secondi**, dopo i quali il traffico viene completamente ridistribuito sulle repliche rimanenti e il sistema ritorna a uno stato stabile senza ulteriori errori.
 
-[immagine di Locust]
+![Immagine di Locust](https://raw.githubusercontent.com/matteociaroni/document-management-system/refs/heads/main/docs/images/pod-fail-test.png)
 
 Il test evidenzia che l’architettura è in grado di tollerare la perdita di singole istanze senza interruzione del servizio, grazie alla replicazione dei pod e ai meccanismi di health check di Kubernetes. Il degrado osservato è limitato nel tempo e rappresenta la finestra di riconfigurazione necessaria al cluster per riallineare gli endpoint attivi.
 
