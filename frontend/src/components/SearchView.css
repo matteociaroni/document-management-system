@@ -175,3 +175,65 @@
 .search-result-card:hover .result-actions .btn-icon {
   opacity: 1;
 }
+
+/* ============================
+   Responsive: mobile
+   ============================ */
+
+@media (max-width: 768px) {
+  .search-view {
+    padding: 1rem;
+  }
+
+  .search-header {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+  }
+
+  .search-header h2 {
+    font-size: 1.125rem;
+  }
+
+  .search-count {
+    margin-left: 0;
+    width: 100%;
+    font-size: 0.8125rem;
+  }
+
+  .search-result-card {
+    padding: 0.875rem 1rem;
+    gap: 0.75rem;
+  }
+
+  .result-filename {
+    font-size: 0.9rem;
+  }
+
+  .result-path {
+    font-size: 0.6875rem;
+  }
+
+  .result-meta {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .result-actions .btn-icon {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 480px) {
+  .search-result-card {
+    flex-wrap: wrap;
+  }
+
+  .result-actions {
+    width: 100%;
+    justify-content: flex-end;
+    border-top: 1px dashed var(--border-color);
+    padding-top: 0.5rem;
+  }
+}

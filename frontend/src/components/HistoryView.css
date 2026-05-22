@@ -41,3 +41,34 @@
   font-size: 0.875rem;
   color: var(--text-secondary);
 }
+
+/* ============================
+   Responsive: mobile
+   ============================ */
+
+@media (max-width: 768px) {
+  .history-view {
+    padding: 1rem;
+  }
+
+  .history-title {
+    font-size: 1.25rem;
+    margin-bottom: 1rem;
+  }
+
+  .history-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+    padding: 0.875rem 1rem;
+  }
+
+  .history-action {
+    font-size: 0.9375rem;
+    word-break: break-word;
+  }
+
+  .history-time {
+    font-size: 0.8125rem;
+  }
+}

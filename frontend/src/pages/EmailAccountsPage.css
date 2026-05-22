@@ -364,3 +364,76 @@ select {
   justify-content: flex-end;
   gap: 1rem;
 }
+
+/* ============================
+   Responsive: tablet & mobile
+   ============================ */
+
+@media (max-width: 768px) {
+  .email-accounts-page {
+    padding: 1rem;
+  }
+
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+  }
+
+  .page-header h1 {
+    font-size: 1.25rem;
+  }
+
+  .accounts-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .account-card {
+    padding: 1.25rem;
+  }
+
+  .account-header h3 {
+    font-size: 1rem;
+    word-break: break-all;
+  }
+
+  .detail-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+  }
+
+  .detail-row .value {
+    text-align: left;
+    word-break: break-all;
+  }
+
+  .form-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .modal-overlay {
+    padding: 0.5rem;
+    align-items: flex-end;
+  }
+
+  .modal-content {
+    max-width: none;
+    max-height: 92dvh;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  }
+
+  .modal-footer {
+    flex-direction: column-reverse;
+    gap: 0.5rem;
+  }
+
+  .modal-footer > * {
+    width: 100%;
+    justify-content: center;
+  }
+}

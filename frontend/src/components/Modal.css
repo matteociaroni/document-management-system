@@ -187,3 +187,54 @@
 .btn-danger:hover {
   background-color: #fee2e2;
 }
+
+/* ============================
+   Responsive: mobile
+   ============================ */
+
+@media (max-width: 600px) {
+  .modal-overlay {
+    padding: 0.5rem;
+    align-items: flex-end;
+  }
+
+  .modal-content {
+    max-width: none;
+    max-height: 92dvh;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  }
+
+  .modal-header {
+    padding: 1rem 1.25rem;
+  }
+
+  .modal-header h2 {
+    font-size: 1.125rem;
+  }
+
+  .modal-body,
+  .modal-form {
+    padding: 1.25rem;
+  }
+
+  .modal-footer {
+    padding: 0.875rem 1.25rem;
+    flex-direction: column-reverse;
+    gap: 0.5rem;
+  }
+
+  .modal-footer > * {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .permissions-list {
+    padding: 1rem 1.25rem;
+  }
+
+  .permission-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+}

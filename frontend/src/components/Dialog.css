@@ -208,3 +208,37 @@
   border-bottom: 1px solid #fee2e2;
   background: linear-gradient(135deg, #fff5f5 0%, var(--bg-surface) 60%);
 }
+
+/* ============================
+   Responsive: mobile
+   ============================ */
+
+@media (max-width: 480px) {
+  .dialog-backdrop {
+    padding: 0.75rem;
+    align-items: flex-end;
+  }
+
+  .dialog-box {
+    max-width: none;
+    border-radius: var(--radius-lg);
+  }
+
+  .dialog-header {
+    padding: 1rem 1.25rem 0.75rem;
+  }
+
+  .dialog-body {
+    padding: 0 1.25rem 1rem;
+  }
+
+  .dialog-footer {
+    flex-direction: column-reverse;
+    gap: 0.5rem;
+    padding: 0.75rem 1.25rem 1rem;
+  }
+
+  .dialog-btn {
+    width: 100%;
+  }
+}

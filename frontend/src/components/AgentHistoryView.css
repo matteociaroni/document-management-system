@@ -138,3 +138,70 @@
   border-color: #fecaca;
   margin-bottom: 1rem;
 }
+
+/* ============================
+   Responsive: mobile
+   ============================ */
+
+@media (max-width: 768px) {
+  .agent-history-view {
+    padding: 1rem;
+  }
+
+  .history-header {
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+  }
+
+  .history-title {
+    font-size: 1.25rem;
+  }
+
+  .agent-history-list {
+    gap: 1rem;
+  }
+
+  .agent-history-list::before {
+    left: 17px;
+  }
+
+  .agent-history-item {
+    gap: 1rem;
+  }
+
+  .op-icon-container {
+    width: 36px;
+    height: 36px;
+  }
+
+  .op-icon-container svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .op-content {
+    padding: 0.75rem 0.875rem;
+  }
+
+  .op-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+    margin-bottom: 0.375rem;
+  }
+
+  .op-type {
+    font-size: 0.9rem;
+  }
+
+  .op-description {
+    font-size: 0.875rem;
+  }
+
+  .loading-state,
+  .empty-state,
+  .error-state {
+    padding: 2rem 1rem;
+  }
+}
